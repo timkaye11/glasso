@@ -1,10 +1,6 @@
 package glasso
 
-import (
-	"math"
-
-	"github.com/gonum/matrix/mat64"
-)
+import "math"
 
 /*
 func qt(alpha float64, df int) {
@@ -49,36 +45,6 @@ func (o *OLS) ci_ybar(alpha, val float64) {
 
 }
 */
-
-// Calculates the variance-covariance matrix of the regression coefficients
-// defined as (XtX)-1
-// Using QR decomposition: X = QR
-// ((QR)tQR)-1 ---> (RtQtQR)-1 ---> (RtR)-1 ---> R-1Rt-1
-//
-func (o *OLS) varianceCovarianceMatrix() *mat64.Dense {
-	x := o.x.data
-
-	// it's easier to do things with X = QR
-	qrFactor := mat64.QR(x)
-	R := qrFactor.R()
-
-	Raug := mat64.NewDense(o.p, o.p, nil)
-	for i := 0; i < o.p; i++ {
-		for j := 0; j < o.p; j++ {
-			Raug.Set(i, j, R.At(i, j))
-		}
-	}
-
-	Rinverse, err := mat64.Inverse(Raug)
-	if err != nil {
-		panic("R matrix is not invertible")
-	}
-
-	varCov := mat64.NewDense(o.p, o.p, nil)
-	varCov.MulTrans(Rinverse, false, Rinverse, true)
-
-	return varCov
-}
 
 func sum(x []float64) float64 {
 	y := 0.0

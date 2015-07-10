@@ -102,3 +102,33 @@ func StudentizedResiduals(o *OLS) []float64 {
 
 	return t
 }
+
+// Calculates the variance-covariance matrix of the regression coefficients
+// defined as (XtX)-1
+// Using QR decomposition: X = QR
+// ((QR)tQR)-1 ---> (RtQtQR)-1 ---> (RtR)-1 ---> R-1Rt-1
+//
+func (o *OLS) varianceCovarianceMatrix() *mat64.Dense {
+	x := o.x.data
+
+	// it's easier to do things with X = QR
+	qrFactor := mat64.QR(x)
+	R := qrFactor.R()
+
+	Raug := mat64.NewDense(o.p, o.p, nil)
+	for i := 0; i < o.p; i++ {
+		for j := 0; j < o.p; j++ {
+			Raug.Set(i, j, R.At(i, j))
+		}
+	}
+
+	Rinverse, err := mat64.Inverse(Raug)
+	if err != nil {
+		panic("R matrix is not invertible")
+	}
+
+	varCov := mat64.NewDense(o.p, o.p, nil)
+	varCov.MulTrans(Rinverse, false, Rinverse, true)
+
+	return varCov
+}
