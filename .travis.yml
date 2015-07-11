@@ -1,0 +1,5 @@
+language: go
+script: go test -race -cpu 1,2,4 -v ./...
+go:
+  - 1.4
+  - tip
