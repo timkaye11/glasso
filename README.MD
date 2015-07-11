@@ -1,5 +1,7 @@
 #### linear regression in go
 
+[![Build Status](https://travis-ci.org/timkaye11/glasso.svg?branch=master)](https://travis-ci.org/timkaye11/glasso)
+
  - [x] ols (coefficients, fitted, resids)
  - [x] rss, tss, mse
  - [x] rsquared, adj. rsquared
