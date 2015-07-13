@@ -7,7 +7,8 @@ import (
 
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
-	. "github.com/timkaye11/glasso/util"
+
+	util "github.com/timkaye11/glasso/util"
 )
 
 // Regression Output
@@ -132,7 +133,7 @@ func (o *OLS) Residuals() []float64 {
 func (o *OLS) TotalSumofSquares() float64 {
 	// no chance this could error
 	y, _ := govector.AsVector(o.response)
-	ybar := Mean(o.response)
+	ybar := util.Mean(o.response)
 
 	squaredDiff := func(x float64) float64 {
 		return math.Pow(x-ybar, 2.0)
@@ -169,7 +170,7 @@ func (o *OLS) AdjustedRSquared() float64 {
 }
 
 func (o *OLS) sdResiduals() float64 {
-	ybar := Mean(o.response)
+	ybar := util.Mean(o.response)
 
 	ss := 0.0
 	for i := 0; i < o.n; i++ {
