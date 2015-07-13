@@ -50,6 +50,24 @@ func DF(data []float64, labels []string) (*DataFrame, error) {
 	}, nil
 }
 
+func NewDF(data [][]float64) *DataFrame {
+	cols := len(data)
+	rows := len(data[0])
+	x := make([]float64, cols*rows)
+
+	for _, d := range data {
+		x = append(x, d...)
+	}
+
+	df := mat64.NewDense(rows, cols, x)
+
+	return &DataFrame{
+		data: df,
+		cols: cols,
+		rows: rows,
+	}
+}
+
 func (df *DataFrame) Dim() (int, int) {
 	return df.data.Dims()
 }

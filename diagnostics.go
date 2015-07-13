@@ -103,12 +103,26 @@ func StudentizedResiduals(o *OLS) []float64 {
 	return t
 }
 
+// PRESS (Predicted Error Sum of Squares)
+// This is used as estimate the model's ability to predict new observations
+// R^2_prediction = 1 - (PRESS / TSS)
+func PRESS(o *OLS) []float64 {
+	press := make([]float64, o.n)
+	h_diag := LeveragePoints(o)
+
+	for i := 0; i < o.n; i++ {
+		press[i] = o.residuals[i] / (1.0 - h_diag[i])
+	}
+
+	return press
+}
+
 // Calculates the variance-covariance matrix of the regression coefficients
 // defined as (XtX)-1
 // Using QR decomposition: X = QR
 // ((QR)tQR)-1 ---> (RtQtQR)-1 ---> (RtR)-1 ---> R-1Rt-1
 //
-func (o *OLS) varianceCovarianceMatrix() *mat64.Dense {
+func (o *OLS) VarianceCovarianceMatrix() *mat64.Dense {
 	x := o.x.data
 
 	// it's easier to do things with X = QR
@@ -131,4 +145,38 @@ func (o *OLS) varianceCovarianceMatrix() *mat64.Dense {
 	varCov.MulTrans(Rinverse, false, Rinverse, true)
 
 	return varCov
+}
+
+// A simple approach to identify collinearity among explanatory variables is the use of variance inflation factors (VIF).
+// VIF calculations are straightforward and easily comprehensible; the higher the value, the higher the collinearity
+// A VIF for a single explanatory variable is obtained using the r-squared value of the regression of that
+// variable against all other explanatory variables:
+//
+// VIF_{j} = \frac{1}{1 - R_{j}^2}
+//
+func (o *OLS) VarianceInflationFactors() []float64 {
+	// save a copy of the data
+	orig := mat64.DenseCopyOf(o.x.data)
+
+	vifs := make([]float64, o.p)
+
+	for idx := 0; idx < o.p; idx++ {
+		x := o.x.data
+
+		col := x.Col(nil, idx)
+
+		x.SetCol(idx, rep(0.0, o.n))
+
+		err := o.Train(col)
+		if err != nil {
+			panic("Error Occured calculating VIF")
+		}
+
+		vifs[idx] = 1.0 / (1.0 - o.rSquared())
+	}
+
+	// reset the data
+	o.x.data = orig
+
+	return vifs
 }

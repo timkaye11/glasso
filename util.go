@@ -1,6 +1,10 @@
 package glasso
 
-import "math"
+import (
+	"math"
+
+	"github.com/gonum/matrix/mat64"
+)
 
 /*
 func qt(alpha float64, df int) {
@@ -86,4 +90,48 @@ func variance(x []float64) float64 {
 
 func sd(x []float64) float64 {
 	return math.Sqrt(variance(x))
+}
+
+func rep(val float64, times int) []float64 {
+	out := make([]float64, times)
+	for i := 0; i < times; i++ {
+		out[i] = val
+	}
+	return out
+}
+
+func removeCol(df *mat64.Dense, col int) *mat64.Dense {
+	r, c := df.Dims()
+	if col > c || col < 0 {
+		panic("Column Index not supported")
+	}
+
+	cop := mat64.NewDense(r, c-1, nil)
+	for i := 0; i < r; i++ {
+		for j := 0; j < c; j++ {
+			if j == col {
+				continue
+			}
+			cop.Set(i, j, df.At(i, j))
+		}
+	}
+	return cop
+}
+
+func removeRow(df *mat64.Dense, row int) *mat64.Dense {
+	r, c := df.Dims()
+	if row > r || row < 0 {
+		panic("Row Index not supported")
+	}
+
+	cop := mat64.NewDense(r, c-1, nil)
+	for i := 0; i < c; i++ {
+		for j := 0; j < r; j++ {
+			if j == row {
+				continue
+			}
+			cop.Set(j, i, df.At(j, i))
+		}
+	}
+	return cop
 }
