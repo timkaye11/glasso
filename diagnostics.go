@@ -4,16 +4,18 @@ import (
 	"math"
 
 	"github.com/gonum/matrix/mat64"
+
+	. "github.com/timkaye11/glasso/util"
 )
 
 // Cooks Distance: do this concurrently
 //
 // D_{i} = \frac{r_{i}^2}{p * MSE} * \frac{h_{ii}}{(1 - h_{ii})^2}
 //
-func CooksDistance(o *OLS, bounds ...int) []float64 {
+func (o *OLS) CooksDistance() []float64 {
 
-	h := LeveragePoints(o)
-	mse := o.meanSquaredError()
+	h := o.LeveragePoints()
+	mse := o.MeanSquaredError()
 
 	dists := make(chan tuple, o.n)
 
@@ -51,7 +53,7 @@ type tuple struct {
 //	 = QRR'-1 R-1 R'Q'
 //	 = QQ' (the first p cols of Q, where X = n x p)
 //
-func LeveragePoints(o *OLS) []float64 {
+func (o *OLS) LeveragePoints() []float64 {
 	x := o.x.data
 	qrf := mat64.QR(x)
 	q := qrf.Q()
@@ -91,10 +93,10 @@ func LeveragePoints(o *OLS) []float64 {
 //
 // t_{i} = \frac{\hat{\epsilon}}{\sigma * \sqrt{1 - h_{ii}}}
 // \hat{\epsilon} =
-func StudentizedResiduals(o *OLS) []float64 {
+func (o *OLS) StudentizedResiduals() []float64 {
 	t := make([]float64, o.n)
-	sigma := sd(o.residuals)
-	h := LeveragePoints(o)
+	sigma := Sd(o.residuals)
+	h := o.LeveragePoints()
 
 	for i := 0; i < o.n; i++ {
 		t[i] = o.residuals[i] / (sigma * math.Sqrt(1-h[i]))
@@ -106,9 +108,9 @@ func StudentizedResiduals(o *OLS) []float64 {
 // PRESS (Predicted Error Sum of Squares)
 // This is used as estimate the model's ability to predict new observations
 // R^2_prediction = 1 - (PRESS / TSS)
-func PRESS(o *OLS) []float64 {
+func (o *OLS) PRESS() []float64 {
 	press := make([]float64, o.n)
-	h_diag := LeveragePoints(o)
+	h_diag := o.LeveragePoints()
 
 	for i := 0; i < o.n; i++ {
 		press[i] = o.residuals[i] / (1.0 - h_diag[i])
@@ -165,14 +167,14 @@ func (o *OLS) VarianceInflationFactors() []float64 {
 
 		col := x.Col(nil, idx)
 
-		x.SetCol(idx, rep(0.0, o.n))
+		x.SetCol(idx, Rep(0.0, o.n))
 
 		err := o.Train(col)
 		if err != nil {
 			panic("Error Occured calculating VIF")
 		}
 
-		vifs[idx] = 1.0 / (1.0 - o.rSquared())
+		vifs[idx] = 1.0 / (1.0 - o.RSquared())
 	}
 
 	// reset the data

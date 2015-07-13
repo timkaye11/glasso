@@ -10,6 +10,9 @@
  - [x] leverage
  - [x] variance-covariance mat
  - [x] studentized residuals
+ - [x] press
+ - [x] variance inflation factors
+ - [ ] dfbetas, dffits
  - [ ] jackknife residuals
  - [ ] power transform
  - [ ] WRITE TESTS

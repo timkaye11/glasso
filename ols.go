@@ -1,153 +1,14 @@
 package glasso
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"strings"
 
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
+	. "github.com/timkaye11/glasso/util"
 )
-
-var (
-	DimensionError = errors.New("Error caused by wrong dimensionality")
-	LabelError     = errors.New("Missing labels for columns")
-)
-
-type DataFrame struct {
-	data       *mat64.Dense
-	cols, rows int
-	labels     []string
-	colToIdx   map[string]int
-}
-
-func DF(data []float64, labels []string) (*DataFrame, error) {
-	cols := len(labels)
-	ents := len(data)
-	// dimensions gotta be right
-	if ents%cols != 0 {
-		return nil, DimensionError
-	}
-
-	lookup := make(map[string]int)
-	for col := 0; col < cols; col++ {
-		if name := labels[col]; name != "" {
-			lookup[name] = col
-			continue
-		}
-		colname := fmt.Sprintf("$%d", col)
-		lookup[colname] = col
-		labels[col] = colname
-	}
-
-	return &DataFrame{
-		data:     mat64.NewDense(ents/cols, cols, data),
-		labels:   labels,
-		colToIdx: lookup,
-		cols:     cols,
-		rows:     ents / cols,
-	}, nil
-}
-
-func NewDF(data [][]float64) *DataFrame {
-	cols := len(data)
-	rows := len(data[0])
-	x := make([]float64, cols*rows)
-
-	for _, d := range data {
-		x = append(x, d...)
-	}
-
-	df := mat64.NewDense(rows, cols, x)
-
-	return &DataFrame{
-		data: df,
-		cols: cols,
-		rows: rows,
-	}
-}
-
-func (df *DataFrame) Dim() (int, int) {
-	return df.data.Dims()
-}
-
-func (df *DataFrame) GetCol(col string) ([]float64, int) {
-	idx, ok := df.colToIdx[col]
-	if !ok {
-		return nil, 0
-	}
-	return df.data.Col(nil, idx), idx
-}
-
-func (df *DataFrame) Transform(f func(x float64) float64, cols ...interface{}) {
-	fc := func(f func(x float64) float64, buf []float64) []float64 {
-		for i := 0; i < len(buf); i++ {
-			buf[i] = f(buf[i])
-		}
-		return buf
-	}
-
-	for _, col := range cols {
-		switch v := col.(type) {
-		case string:
-			buf, idx := df.GetCol(v)
-			df.data.SetCol(idx, fc(f, buf))
-		case int, int32, int64:
-			idx := v.(int)
-			buf := make([]float64, df.rows)
-			df.data.Col(buf, idx)
-			df.data.SetCol(idx, fc(f, buf))
-		default:
-		}
-	}
-	return
-}
-
-// Similar to R, if margin is set to true, the function f is
-// applied on the columns. Else, apply the function to the rows
-func (df *DataFrame) Apply(f func(x []float64) float64, margin bool, idxs ...int) []float64 {
-	if margin {
-		return df.applyCols(f, idxs)
-	}
-	return df.applyRows(f, idxs)
-}
-
-func (df *DataFrame) applyCols(f func(x []float64) float64, cols []int) []float64 {
-	if len(cols) > df.cols {
-		panic("wtf")
-	}
-
-	output := make([]float64, len(cols))
-
-	for i, col := range cols {
-		if col > df.cols {
-			panic("wtf")
-		}
-		x := df.data.Col(nil, col)
-		output[i] = f(x)
-	}
-
-	return output
-}
-
-func (df *DataFrame) applyRows(f func(x []float64) float64, rows []int) []float64 {
-	if len(rows) > df.rows {
-		panic("wtf")
-	}
-
-	output := make([]float64, len(rows))
-
-	for i, row := range rows {
-		if row > df.rows {
-			panic("wtf")
-		}
-		x := df.data.Row(nil, row)
-		output[i] = f(x)
-	}
-
-	return output
-}
 
 // Regression Output
 type Model interface {
@@ -261,17 +122,17 @@ func (o *OLS) String() string {
 		\n R-squared: %v`,
 		strings.Join(o.x.labels, ","),
 		quantiles[0], quantiles[1], quantiles[2], quantiles[3], quantiles[4],
-		betas, o.residualSumofSquares(), o.adjustedRSquared(), o.rSquared())
+		betas, o.ResidualSumofSquares(), o.AdjustedRSquared(), o.RSquared())
 }
 
 func (o *OLS) Residuals() []float64 {
 	return o.residuals
 }
 
-func (o *OLS) totalSumofSquares() float64 {
+func (o *OLS) TotalSumofSquares() float64 {
 	// no chance this could error
 	y, _ := govector.AsVector(o.response)
-	ybar := mean(o.response)
+	ybar := Mean(o.response)
 
 	squaredDiff := func(x float64) float64 {
 		return math.Pow(x-ybar, 2.0)
@@ -280,7 +141,7 @@ func (o *OLS) totalSumofSquares() float64 {
 	return y.Apply(squaredDiff).Sum()
 }
 
-func (o *OLS) residualSumofSquares() float64 {
+func (o *OLS) ResidualSumofSquares() float64 {
 	res, _ := govector.AsVector(o.residuals)
 
 	rss, err := govector.DotProduct(res, res)
@@ -290,19 +151,41 @@ func (o *OLS) residualSumofSquares() float64 {
 	return rss
 }
 
-func (o *OLS) rSquared() float64 {
-	return float64(1 - o.residualSumofSquares()/o.totalSumofSquares())
+func (o *OLS) RSquared() float64 {
+	return float64(1 - o.ResidualSumofSquares()/o.TotalSumofSquares())
 }
 
-func (o *OLS) meanSquaredError() float64 {
-	n := o.x.rows
-	return o.residualSumofSquares() / float64(n-2)
+func (o *OLS) MeanSquaredError() float64 {
+	n := float64(o.x.rows)
+	return o.ResidualSumofSquares() / (n - 2.0)
 }
 
 // the adjusted r-squared adjusts the r-squared value to reflect the importance of predictor variables
 // https://en.wikipedia.org/wiki/Coefficient_of_determination#Adjusted_R2
-func (o *OLS) adjustedRSquared() float64 {
+func (o *OLS) AdjustedRSquared() float64 {
 	dfe := float64(o.x.rows)
 	dft := dfe - float64(o.x.cols)
-	return 1 - (o.residualSumofSquares()*(dfe-1))/(o.totalSumofSquares()*dft)
+	return 1 - (o.ResidualSumofSquares()*(dfe-1.0))/(o.TotalSumofSquares()*dft)
 }
+
+func (o *OLS) sdResiduals() float64 {
+	ybar := Mean(o.response)
+
+	ss := 0.0
+	for i := 0; i < o.n; i++ {
+		ss += math.Pow(ybar-o.fitted[i], 2.0)
+	}
+
+	return math.Sqrt(ss / float64(o.n-2))
+}
+
+/*
+func (o *OLS) ci_ybar(alpha, val float64) {
+	ybar := mean(o.response)
+
+	s := o.sdResiduals()
+
+	t := qt(alpha, o.df)
+
+}
+*/
