@@ -85,14 +85,16 @@ func RemoveCol(df *mat64.Dense, col int) *mat64.Dense {
 	}
 
 	cop := mat64.NewDense(r, c-1, nil)
-	for i := 0; i < r; i++ {
-		for j := 0; j < c; j++ {
-			if j == col {
-				continue
-			}
-			cop.Set(i, j, df.At(i, j))
+
+	m := 0
+
+	for i := 0; i < c; i++ {
+		if i != col {
+			cop.SetCol(m, df.Col(nil, i))
+			m++
 		}
 	}
+
 	return cop
 }
 
@@ -102,14 +104,16 @@ func RemoveRow(df *mat64.Dense, row int) *mat64.Dense {
 		panic("Row Index not supported")
 	}
 
-	cop := mat64.NewDense(r, c-1, nil)
-	for i := 0; i < c; i++ {
-		for j := 0; j < r; j++ {
-			if j == row {
-				continue
-			}
-			cop.Set(j, i, df.At(j, i))
+	cop := mat64.NewDense(r-1, c, nil)
+
+	m := 0
+
+	for i := 0; i < r; i++ {
+		if i != row {
+			cop.SetRow(m, df.Row(nil, i))
+			m++
 		}
 	}
+
 	return cop
 }

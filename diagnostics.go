@@ -2,10 +2,15 @@ package glasso
 
 import (
 	"math"
+	"runtime"
 
 	"github.com/gonum/matrix/mat64"
 
 	. "github.com/timkaye11/glasso/util"
+)
+
+const (
+	NCPU = 4
 )
 
 // Cooks Distance: do this concurrently
@@ -13,37 +18,30 @@ import (
 // D_{i} = \frac{r_{i}^2}{p * MSE} * \frac{h_{ii}}{(1 - h_{ii})^2}
 //
 func (o *OLS) CooksDistance() []float64 {
+	runtime.GOMAXPROCS(NCPU)
 
 	h := o.LeveragePoints()
 	mse := o.MeanSquaredError()
 
-	dists := make(chan tuple, o.n)
+	c := make(chan int, NCPU)
+
+	dists := make([]float64, o.n)
 
 	for i := 0; i < o.n; i++ {
 		go func(idx int) {
 			left := math.Pow(o.residuals[i], 2.0) / (float64(o.p) * mse)
 			right := h[i] / math.Pow(1-h[i], 2)
-			dists <- tuple{left * right, idx}
+			dists[idx] = left * right
+			c <- 1
 		}(i)
 	}
 
 	// drain the channel
-	output := make([]float64, o.n)
-	for {
-		select {
-		case tup, ok := <-dists:
-			if ok {
-				output[tup.i] = tup.val
-			}
-		}
+	for i := 0; i < NCPU; i++ {
+		<-c
 	}
 
-	return output
-}
-
-type tuple struct {
-	val float64
-	i   int
+	return dists
 }
 
 // Leverage Points, the diagonal of the hat matrix
@@ -53,6 +51,7 @@ type tuple struct {
 //	 = QRR'-1 R-1 R'Q'
 //	 = QQ' (the first p cols of Q, where X = n x p)
 //
+// Leverage points are considered large if they exceed 2p/ n
 func (o *OLS) LeveragePoints() []float64 {
 	x := o.x.data
 	qrf := mat64.QR(x)
@@ -181,4 +180,73 @@ func (o *OLS) VarianceInflationFactors() []float64 {
 	o.x.data = orig
 
 	return vifs
+}
+
+// DFBETAS
+//
+//
+func (o *OLS) DFBETA() []float64 {
+	runtime.GOMAXPROCS(NCPU)
+
+	c := make(chan int, NCPU)
+
+	dfs := make([]float64, o.n)
+
+	for i := 0; i < o.n; i++ {
+		go func() {
+			dfs[i] = 0.0
+			c <- 1
+		}()
+	}
+
+	for i := 0; i < NCPU; i++ {
+		<-c
+	}
+
+	return dfs
+}
+
+// DFFITS - influence of single fitted value
+// = \hat{Y_{i}} - \hat{Y_{i(i)}} / \sqrt{MSE_{(i)} h_{ii}}
+// influential if larger than 1
+//
+func (o *OLS) DFFITS() []float64 {
+	orig := o.x.data
+	fitted := o.fitted
+	leverage := o.LeveragePoints()
+
+	runtime.GOMAXPROCS(NCPU)
+
+	c := make(chan int, NCPU)
+
+	dffits := make([]float64, o.n)
+
+	o.n--
+
+	for i := 0; i < len(dffits); i++ {
+		go func(i int) {
+			o.x.data = RemoveRow(o.x.data, i)
+
+			err := o.Train(o.residuals)
+			if err != nil {
+				panic(err)
+			}
+
+			loo_fitted := o.fitted
+
+			dffits[i] = fitted[i] - loo_fitted[i]
+			dffits[i] /= math.Sqrt(o.MeanSquaredError() * leverage[i])
+
+			c <- 1
+		}(i)
+	}
+
+	for i := 0; i < NCPU; i++ {
+		<-c
+	}
+
+	o.x.data = orig
+	o.n++
+
+	return dffits
 }
