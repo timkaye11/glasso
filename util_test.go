@@ -8,7 +8,7 @@ import (
 )
 
 func TestRemoveRow(t *testing.T) {
-	data := mat64.NewDense(2, 4, append(Rep(1.0, 4), Rep(2.0, 4)...))
+	data := mat64.NewDense(2, 4, append(rep(1.0, 4), rep(2.0, 4)...))
 	// 1,1,1,1
 	// 2,2,2,2
 	for _, x := range data.Row(nil, 0) {
@@ -18,7 +18,7 @@ func TestRemoveRow(t *testing.T) {
 	assert.Equal(t, r, 2)
 	assert.Equal(t, c, 4)
 
-	data = RemoveRow(data, 0)
+	data = removeRow(data, 0)
 	for _, x := range data.Row(nil, 0) {
 		assert.Equal(t, x, 2.0)
 	}
@@ -38,7 +38,7 @@ func TestRemoveCol(t *testing.T) {
 	assert.Equal(t, r, 4)
 	assert.Equal(t, c, 2)
 
-	data = RemoveCol(data, 0)
+	data = removeCol(data, 0)
 	for _, x := range data.Col(nil, 0) {
 		assert.Equal(t, x, 2.0)
 	}

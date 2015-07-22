@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/bmizerany/assert"
-	. "github.com/timkaye11/glasso/util"
 )
 
 // make sure everything is constructed OK
@@ -45,9 +44,9 @@ func TestTransformDF(t *testing.T) {
 	newB, _ := df.GetCol("b")
 	newC, _ := df.GetCol("c")
 
-	assert.Equal(t, Sum(newA), 15.0)
-	assert.Equal(t, Sum(newB), 15.0) // shouldn't change
-	assert.Equal(t, Sum(newC), 21.0)
+	assert.Equal(t, sum(newA), 15.0)
+	assert.Equal(t, sum(newB), 15.0) // shouldn't change
+	assert.Equal(t, sum(newC), 21.0)
 }
 
 // test apply function
@@ -61,8 +60,8 @@ func TestApplyDF(t *testing.T) {
 	labels := []string{"a", "b", "c"}
 	df, _ := DF(data, labels)
 
-	colProds := df.Apply(Mult, true, 0, 1, 2)
-	rowProds := df.Apply(Mult, false, 0, 1, 2)
+	colProds := df.Apply(mult, true, 0, 1, 2)
+	rowProds := df.Apply(mult, false, 0, 1, 2)
 
 	// all the products should equal 6
 	for i := 0; i < 3; i++ {
