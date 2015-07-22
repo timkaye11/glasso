@@ -4,9 +4,8 @@ import (
 	"math"
 	"runtime"
 
+	"code.google.com/p/gostat/stat"
 	"github.com/gonum/matrix/mat64"
-
-	. "github.com/timkaye11/glasso/util"
 )
 
 const (
@@ -94,7 +93,7 @@ func (o *OLS) LeveragePoints() []float64 {
 // \hat{\epsilon} =
 func (o *OLS) StudentizedResiduals() []float64 {
 	t := make([]float64, o.n)
-	sigma := Sd(o.residuals)
+	sigma := sd(o.residuals)
 	h := o.LeveragePoints()
 
 	for i := 0; i < o.n; i++ {
@@ -166,7 +165,7 @@ func (o *OLS) VarianceInflationFactors() []float64 {
 
 		col := x.Col(nil, idx)
 
-		x.SetCol(idx, Rep(0.0, o.n))
+		x.SetCol(idx, rep(0.0, o.n))
 
 		err := o.Train(col)
 		if err != nil {
@@ -225,7 +224,7 @@ func (o *OLS) DFFITS() []float64 {
 
 	for i := 0; i < len(dffits); i++ {
 		go func(i int) {
-			o.x.data = RemoveRow(o.x.data, i)
+			o.x.data = removeRow(o.x.data, i)
 
 			err := o.Train(o.residuals)
 			if err != nil {
@@ -249,4 +248,87 @@ func (o *OLS) DFFITS() []float64 {
 	o.n++
 
 	return dffits
+}
+
+// var(\beta) = \sigma * (Xt X_)-1
+// 			  = \sigma * ((QR)t QR) -1
+// 			  = \sigma * (RtQt QR) -1
+//			  = \sigma * (Rt R) -1
+//
+func (o *OLS) VarBeta() []float64 {
+	// use the unbiased estimator for sigma^2
+	sig := o.ResidualSumofSquares() / float64(o.n-o.p-1)
+
+	var_cov := o.VarianceCovarianceMatrix()
+
+	var_cov_diag := make([]float64, len(o.betas))
+
+	for i := 0; i < len(o.betas); i++ {
+		var_cov_diag[i] = var_cov.At(i, i)
+	}
+
+	varbetas := make([]float64, len(o.betas))
+
+	for i, diag := range var_cov_diag {
+		varbetas[i] = math.Sqrt(sig * diag)
+	}
+
+	return varbetas
+}
+
+// To test a hypothesis that a coefficient B_j = 0, we form
+// the standardized coefficient or Z-score
+// Z_j = \frac{B_j}{\sigma * sqrt{v_{j}}}
+// where v_j is the jth diagonal element from the variance covariance matrix: (XtX)-1
+func (o *OLS) Z_Scores() []float64 {
+	z := make([]float64, len(o.betas))
+	v := make([]float64, len(o.betas))
+
+	sigma := math.Sqrt(o.ResidualSumofSquares() / float64(o.n-o.p-1))
+
+	var_cov := o.VarianceCovarianceMatrix()
+	for i := 0; i < len(z); i++ {
+		v[i] = var_cov.At(i, i)
+	}
+
+	for i, beta_j := range o.betas {
+		z[i] = beta_j / (sigma * math.Sqrt(v[i]))
+	}
+
+	return z
+}
+
+// The F statistic measures the change in residual sum-of-squares per
+// additional parameter in the bigger model, and it is normalized by an estimate of sigma2
+//
+//
+func (o *OLS) F_Statistic(toRemove ...int) (fval, pval float64) {
+	if len(toRemove) > (o.p - 1) {
+		panic("Too many columns to remove")
+	}
+
+	data := o.x.data
+	for _, col := range toRemove {
+		data = removeCol(data, col)
+	}
+
+	cols, rows := data.Dims()
+	df := &DataFrame{data: data, cols: cols, rows: rows}
+	ols := NewOLS(df)
+
+	err := ols.Train(o.response)
+	if err != nil {
+		panic(err)
+	}
+
+	d1 := float64(o.p - ols.p)
+	d2 := float64(o.n - o.p)
+
+	f := (ols.ResidualSumofSquares() - o.ResidualSumofSquares()) / d1
+	f /= o.ResidualSumofSquares() / d2
+
+	Fdist := stat.F_CDF(d1, d2)
+	p := 1 - Fdist(f)
+
+	return f, p
 }

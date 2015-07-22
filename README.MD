@@ -12,7 +12,7 @@
  - [x] studentized residuals
  - [x] press
  - [x] variance inflation factors
- - [ ] dfbetas, dffits
+ - [x] dfbetas, dffits
  - [ ] jackknife residuals
  - [ ] power transform
  - [ ] WRITE TESTS

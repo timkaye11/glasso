@@ -8,7 +8,7 @@ import (
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
 
-	util "github.com/timkaye11/glasso/util"
+	"code.google.com/p/gostat/stat"
 )
 
 // Regression Output
@@ -133,7 +133,7 @@ func (o *OLS) Residuals() []float64 {
 func (o *OLS) TotalSumofSquares() float64 {
 	// no chance this could error
 	y, _ := govector.AsVector(o.response)
-	ybar := util.Mean(o.response)
+	ybar := mean(o.response)
 
 	squaredDiff := func(x float64) float64 {
 		return math.Pow(x-ybar, 2.0)
@@ -170,7 +170,7 @@ func (o *OLS) AdjustedRSquared() float64 {
 }
 
 func (o *OLS) sdResiduals() float64 {
-	ybar := util.Mean(o.response)
+	ybar := mean(o.response)
 
 	ss := 0.0
 	for i := 0; i < o.n; i++ {
@@ -180,13 +180,19 @@ func (o *OLS) sdResiduals() float64 {
 	return math.Sqrt(ss / float64(o.n-2))
 }
 
-/*
-func (o *OLS) ci_ybar(alpha, val float64) {
-	ybar := mean(o.response)
+func (o *OLS) Confidence_interval(alpha float64) [][2]float64 {
+	tdist := stat.StudentsT_PDF(float64(o.df))
 
-	s := o.sdResiduals()
+	t := tdist(alpha)
 
-	t := qt(alpha, o.df)
+	std_err := o.VarBeta()
 
+	cis := make([][2]float64, len(o.betas))
+
+	for i, b := range o.betas {
+		v := math.Sqrt(std_err[i])
+		cis[i] = [2]float64{b - t*v, b + t*v}
+	}
+
+	return cis
 }
-*/
