@@ -8,7 +8,7 @@ import (
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
 
-	"code.google.com/p/gostat/stat"
+	"github.com/timkaye11/gostat/stat"
 )
 
 // Regression Output
@@ -42,11 +42,16 @@ type OLS struct {
 	response  []float64
 }
 
-func NewOLS(data *DataFrame) *OLS {
-	rows := data.rows
-	cols := data.cols
+func NewOLS(x *DataFrame) *OLS {
+	rows := x.rows
+	cols := x.cols
+	//	cols := x.cols + 1
+
+	//	d := mat64.DenseCopyOf(x.data.Grow(0, 1))
+	//	d.SetCol(0, rep(1.0, rows))
+
 	return &OLS{
-		x:         data,
+		x:         x,
 		betas:     make([]float64, cols),
 		residuals: make([]float64, rows),
 		fitted:    make([]float64, rows),

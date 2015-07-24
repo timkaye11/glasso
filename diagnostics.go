@@ -4,8 +4,9 @@ import (
 	"math"
 	"runtime"
 
-	"code.google.com/p/gostat/stat"
+	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
+	"github.com/timkaye11/gostat/stat"
 )
 
 const (
@@ -331,4 +332,22 @@ func (o *OLS) F_Statistic(toRemove ...int) (fval, pval float64) {
 	p := 1 - Fdist(f)
 
 	return f, p
+}
+
+// Durbin Watson Test for Autocorrelatoin of the Residuals
+// d = \sum_i=2 ^ n (e_i  - e_i-1)^2 / \sum_i=1^n e_i^2
+//
+// Does not calculate the p-value
+func (o *OLS) DW_Test() float64 {
+	e, err := govector.AsVector(o.residuals)
+	if err != nil {
+		panic(err)
+	}
+
+	square := func(x float64) float64 { return math.Pow(x, 2) }
+
+	d := e.Diff().Apply(square).Sum()
+	d /= e.Apply(square).Sum()
+
+	return d
 }
