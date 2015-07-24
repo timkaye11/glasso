@@ -188,7 +188,7 @@ func (o *OLS) sdResiduals() float64 {
 func (o *OLS) Confidence_interval(alpha float64) [][2]float64 {
 	tdist := stat.StudentsT_PDF(float64(o.df))
 
-	t := tdist(alpha)
+	t := tdist(1 - alpha)
 
 	std_err := o.VarBeta()
 
