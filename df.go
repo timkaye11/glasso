@@ -2,7 +2,6 @@ package glasso
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/gonum/matrix/mat64"
 )
@@ -16,7 +15,6 @@ type DataFrame struct {
 	data       *mat64.Dense
 	cols, rows int
 	labels     []string
-	colToIdx   map[string]int
 }
 
 func DF(data []float64, labels []string) (*DataFrame, error) {
@@ -27,23 +25,11 @@ func DF(data []float64, labels []string) (*DataFrame, error) {
 		return nil, DimensionError
 	}
 
-	lookup := make(map[string]int)
-	for col := 0; col < cols; col++ {
-		if name := labels[col]; name != "" {
-			lookup[name] = col
-			continue
-		}
-		colname := fmt.Sprintf("$%d", col)
-		lookup[colname] = col
-		labels[col] = colname
-	}
-
 	return &DataFrame{
-		data:     mat64.NewDense(ents/cols, cols, data),
-		labels:   labels,
-		colToIdx: lookup,
-		cols:     cols,
-		rows:     ents / cols,
+		data:   mat64.NewDense(ents/cols, cols, data),
+		labels: labels,
+		cols:   cols,
+		rows:   ents / cols,
 	}, nil
 }
 
@@ -69,15 +55,7 @@ func (df *DataFrame) Dim() (int, int) {
 	return df.data.Dims()
 }
 
-func (df *DataFrame) GetCol(col string) ([]float64, int) {
-	idx, ok := df.colToIdx[col]
-	if !ok {
-		return nil, 0
-	}
-	return df.data.Col(nil, idx), idx
-}
-
-func (df *DataFrame) Transform(f func(x float64) float64, cols ...interface{}) {
+func (df *DataFrame) Transform(f func(x float64) float64, cols ...int) {
 	fc := func(f func(x float64) float64, buf []float64) []float64 {
 		for i := 0; i < len(buf); i++ {
 			buf[i] = f(buf[i])
@@ -86,17 +64,9 @@ func (df *DataFrame) Transform(f func(x float64) float64, cols ...interface{}) {
 	}
 
 	for _, col := range cols {
-		switch v := col.(type) {
-		case string:
-			buf, idx := df.GetCol(v)
-			df.data.SetCol(idx, fc(f, buf))
-		case int, int32, int64:
-			idx := v.(int)
-			buf := make([]float64, df.rows)
-			df.data.Col(buf, idx)
-			df.data.SetCol(idx, fc(f, buf))
-		default:
-		}
+		buf := make([]float64, df.rows)
+		df.data.Col(buf, col)
+		df.data.SetCol(col, fc(f, buf))
 	}
 	return
 }

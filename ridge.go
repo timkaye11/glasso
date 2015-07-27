@@ -19,7 +19,7 @@ import (
 // 				= UUT y
 
 type Ridge struct {
-	x          *mat64.Dense
+	x          *DataFrame
 	lambda     float64
 	n, c       int
 	fitted     []float64
@@ -28,9 +28,13 @@ type Ridge struct {
 	beta_ridge []float64
 }
 
-// Larger lambda equals more shrinkage
-func NewRidge(x *mat64.Dense, lambda float64) *Ridge {
-	n, c := x.Dims()
+// Ridge regression for model shrinkage
+//
+// Larger lambda equals more shrinkage of the variables.
+// lambda -> 0 equals the least squares solution
+// lambda -> oo means all coeffients equal 0
+func NewRidge(x *DataFrame, lambda float64) *Ridge {
+	n, c := x.data.Dims()
 	return &Ridge{
 		x:          x,
 		n:          n,
@@ -46,12 +50,16 @@ func NewRidge(x *mat64.Dense, lambda float64) *Ridge {
 // D = c x c
 // V = c x c
 func (r *Ridge) Train(y []float64) error {
+	// standarize matrix and have y_bar = 0
+	r.x.Normalize()
+	y = subtractMean(y)
+
 	r.response = y
 
 	epsilon := math.Pow(2, -52.0)
 	small := math.Pow(2, -966.0)
 
-	svd := mat64.SVD(mat64.DenseCopyOf(r.x), epsilon, small, true, true)
+	svd := mat64.SVD(mat64.DenseCopyOf(r.x.data), epsilon, small, true, true)
 
 	U := svd.U
 	// D[0] >= D[1] >= ... >= D[n-1]
@@ -76,7 +84,7 @@ func (r *Ridge) Train(y []float64) error {
 
 	// find the fitted values : X * \beta_ridge
 	fitted := &mat64.Dense{}
-	fitted.Mul(r.x, beta)
+	fitted.Mul(r.x.data, beta)
 
 	r.fitted = fitted.Col(nil, 0)
 

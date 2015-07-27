@@ -15,13 +15,7 @@ import (
 type Model interface {
 	// Build a linear model. Additional arguments specified in the constructor
 	Train(response []float64) error
-
-	// Predict values based on linear model
 	Predict(x []float64) []float64
-
-	// To Output diagnostics
-	String() string
-
 	Residuals() []float64
 }
 
