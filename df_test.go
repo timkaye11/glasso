@@ -16,7 +16,6 @@ func TestMakeDF(t *testing.T) {
 	assert.Equal(t, err, nil)
 	assert.Equal(t, df.rows, 3)
 	assert.Equal(t, df.cols, 3)
-	assert.Equal(t, df.colToIdx["a"], 0)
 }
 
 // test transform dataframe function
@@ -39,10 +38,10 @@ func TestTransformDF(t *testing.T) {
 	}
 
 	// add 1 to every number in cols "a" & "c"
-	df.Transform(add1, "a", "c")
-	newA, _ := df.GetCol("a")
-	newB, _ := df.GetCol("b")
-	newC, _ := df.GetCol("c")
+	df.Transform(add1, 0, 2)
+	newA := df.data.Col(nil, 0)
+	newB := df.data.Col(nil, 1)
+	newC := df.data.Col(nil, 2)
 
 	assert.Equal(t, sum(newA), 15.0)
 	assert.Equal(t, sum(newB), 15.0) // shouldn't change
