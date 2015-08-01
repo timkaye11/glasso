@@ -35,12 +35,7 @@ func DF(data []float64, labels []string) (*DataFrame, error) {
 		return nil, DimensionError
 	}
 
-	x := mat64.NewDense(ents/cols, cols, rep(0.0, ents))
-	rows := ents / cols
-	for i := 0; i < rows; i++ {
-		idx := i * cols
-		x.SetCol(i, data[idx:idx+cols])
-	}
+	x := mat64.NewDense(ents/cols, cols, data)
 
 	return &DataFrame{
 		data:   x,
@@ -94,6 +89,58 @@ func (df *DataFrame) Transform(f func(x float64) float64, cols ...int) {
 		df.data.Col(buf, col)
 		df.data.SetCol(col, fc(f, buf))
 	}
+	return
+}
+
+func (df *DataFrame) AppendCol(newCol []float64) {
+
+	df.data = mat64.DenseCopyOf(df.data.Grow(0, 1))
+	df.rows, df.cols = df.data.Dims()
+
+	df.data.SetCol(df.cols-1, newCol)
+	return
+}
+
+func (df *DataFrame) AppendRow(newRow []float64) {
+
+	df.data = mat64.DenseCopyOf(df.data.Grow(1, 0))
+	df.rows, df.cols = df.data.Dims()
+
+	df.data.SetRow(df.rows-1, newRow)
+	return
+}
+
+func (df *DataFrame) PushCol(newCol []float64) {
+	df.rows, df.cols = df.data.Dims()
+	if len(newCol) != df.rows {
+		panic(DimensionError)
+	}
+
+	x := mat64.NewDense(df.rows, df.cols+1, nil)
+	x.SetCol(0, newCol)
+
+	for c := 1; c < df.cols+1; c++ {
+		x.SetCol(c, df.data.Col(nil, c-1))
+	}
+	df.data = x
+	df.cols++
+	return
+}
+
+func (df *DataFrame) PushRow(newRow []float64) {
+	df.rows, df.cols = df.data.Dims()
+	if len(newRow) != df.cols {
+		panic(DimensionError)
+	}
+
+	x := mat64.NewDense(df.rows+1, df.cols, nil)
+	x.SetRow(0, newRow)
+
+	for c := 1; c < df.rows+1; c++ {
+		x.SetRow(c, df.data.Row(nil, c-1))
+	}
+	*df.data = *x
+	df.rows++
 	return
 }
 

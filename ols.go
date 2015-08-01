@@ -66,8 +66,13 @@ func (o *OLS) Train(yvector []float64) error {
 
 	o.response = yvector
 	y := mat64.NewDense(len(yvector), 1, yvector)
+	o.x.PushCol(rep(1.0, o.x.rows))
 	x := o.x.data
 
+	fmt.Println(x.Col(nil, 0))
+	fmt.Println(x.Col(nil, 1))
+	fmt.Println(x.Col(nil, 2))
+	fmt.Println(x.Col(nil, 3))
 	// it's easier to do things with X = QR
 	qrFactor := mat64.QR(x)
 	Q := qrFactor.Q()
