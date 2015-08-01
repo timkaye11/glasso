@@ -45,6 +45,12 @@ func NewRidge(x *DataFrame, lambda float64) *Ridge {
 	}
 }
 
+// interface methods
+func (r *Ridge) Data() *DataFrame        { return r.x }
+func (r *Ridge) Coefficients() []float64 { return r.beta_ridge }
+func (r *Ridge) Residuals() []float64    { return r.residuals }
+func (r *Ridge) Yhat() []float64         { return r.fitted }
+
 // x = n x c
 // U = n x c
 // D = c x c

@@ -15,8 +15,11 @@ import (
 type Model interface {
 	// Build a linear model. Additional arguments specified in the constructor
 	Train(response []float64) error
-	Predict(x []float64) []float64
+	//Predict(x []float64) []float64
 	Residuals() []float64
+	Data() *DataFrame
+	Coefficients() []float64
+	Yhat() []float64
 }
 
 // Ordinary Least Squares regression using QR factorization
@@ -107,27 +110,29 @@ func (o *OLS) String() string {
 	points := []float64{0.0, 0.25, 0.5, 0.75, 1.0}
 	p, _ := govector.AsVector(points)
 	quantiles := q.Quantiles(p)
-	betas := []float64{1.0, 2.0}
 
 	return fmt.Sprintf(`
-		\n Formula: response ~ %v
-		\n Residuals: 
-		\n\t Min \t 25 \t 50 \t 75 \t Max: 
-		\n\t %v  \t %v \t %v \t %v \t %v 
-		\n
-		\n Coefficients: %v
-		\n 
-		\n RSS: %v 
-		\n Adjusted R-Squared: %v
-		\n R-squared: %v`,
+		Formula: response ~ %v
+		Residuals: 
+		Min  25  50t 75  Max: 
+		%v   %v  %v  %v  %v 
+		
+		Coefficients: %v
+		RSS: %v 
+		MSE: %v
+		Adjusted R-Squared: %v
+		R-squared: %v`,
 		strings.Join(o.x.labels, ","),
 		quantiles[0], quantiles[1], quantiles[2], quantiles[3], quantiles[4],
-		betas, o.ResidualSumofSquares(), o.AdjustedRSquared(), o.RSquared())
+		o.betas, o.ResidualSumofSquares(), o.MeanSquaredError(),
+		o.AdjustedRSquared(), o.RSquared())
 }
 
-func (o *OLS) Residuals() []float64 {
-	return o.residuals
-}
+// interface methods
+func (o *OLS) Data() *DataFrame        { return o.x }
+func (o *OLS) Coefficients() []float64 { return o.betas }
+func (o *OLS) Residuals() []float64    { return o.residuals }
+func (o *OLS) Yhat() []float64         { return o.fitted }
 
 func (o *OLS) TotalSumofSquares() float64 {
 	// no chance this could error
@@ -156,8 +161,9 @@ func (o *OLS) RSquared() float64 {
 }
 
 func (o *OLS) MeanSquaredError() float64 {
-	n := float64(o.x.rows)
-	return o.ResidualSumofSquares() / (n - 2.0)
+	n, _ := o.x.data.Dims()
+	fmt.Println(o.x.data)
+	return o.ResidualSumofSquares() / (float64(n) - 2.0)
 }
 
 // the adjusted r-squared adjusts the r-squared value to reflect the importance of predictor variables

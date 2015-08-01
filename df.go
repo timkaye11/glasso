@@ -2,7 +2,7 @@ package glasso
 
 import (
 	"errors"
-
+	"fmt"
 	"github.com/gonum/matrix/mat64"
 )
 
@@ -17,16 +17,33 @@ type DataFrame struct {
 	labels     []string
 }
 
+func DfFromMat(mat *mat64.Dense) *DataFrame {
+	rows, cols := mat.Dims()
+	return &DataFrame{
+		data: mat,
+		rows: rows,
+		cols: cols,
+	}
+}
+
 func DF(data []float64, labels []string) (*DataFrame, error) {
 	cols := len(labels)
 	ents := len(data)
 	// dimensions gotta be right
 	if ents%cols != 0 {
+		fmt.Println(cols, len(data))
 		return nil, DimensionError
 	}
 
+	x := mat64.NewDense(ents/cols, cols, rep(0.0, ents))
+	rows := ents / cols
+	for i := 0; i < rows; i++ {
+		idx := i * cols
+		x.SetCol(i, data[idx:idx+cols])
+	}
+
 	return &DataFrame{
-		data:   mat64.NewDense(ents/cols, cols, data),
+		data:   x,
 		labels: labels,
 		cols:   cols,
 		rows:   ents / cols,
@@ -34,9 +51,9 @@ func DF(data []float64, labels []string) (*DataFrame, error) {
 }
 
 func NewDF(data [][]float64) *DataFrame {
-	cols := len(data)
-	rows := len(data[0])
-	x := make([]float64, cols*rows)
+	rows := len(data)
+	cols := len(data[0])
+	x := make([]float64, 0, cols*rows)
 
 	for _, d := range data {
 		x = append(x, d...)
@@ -49,6 +66,15 @@ func NewDF(data [][]float64) *DataFrame {
 		cols: cols,
 		rows: rows,
 	}
+}
+
+func (df *DataFrame) Values() []float64 {
+	vals := make([]float64, 0, df.rows*df.cols)
+
+	for r := 0; r <= df.rows; r++ {
+		vals = append(vals, df.data.Col(nil, r)...)
+	}
+	return vals
 }
 
 func (df *DataFrame) Dim() (int, int) {
