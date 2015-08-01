@@ -6,8 +6,26 @@ import (
 	"github.com/gonum/matrix/mat64"
 )
 
-func qt(alpha float64, df int) float64 {
-	return 1.0
+func round(val float64, places int) float64 {
+	var round float64
+	pow := math.Pow(10, float64(places))
+	digit := pow * val
+	_, div := math.Modf(digit)
+	if div >= 0.5 {
+		round = math.Ceil(digit)
+	} else {
+		round = math.Floor(digit)
+	}
+	return round / pow
+}
+
+func roundAll(x []float64) []float64 {
+	f := make([]float64, len(x))
+	copy(f, x)
+	for i, val := range f {
+		f[i] = round(val, 3)
+	}
+	return f
 }
 
 func sum(x []float64) float64 {

@@ -303,7 +303,7 @@ func (o *OLS) Z_Scores() []float64 {
 // additional parameter in the bigger model, and it is normalized by an estimate of sigma2
 //
 //
-func (o *OLS) F_Statistic(toRemove ...int) (fval, pval float64) {
+func (o *OLS) F_Test(toRemove ...int) (fval, pval float64) {
 	if len(toRemove) > (o.p - 1) {
 		panic("Too many columns to remove")
 	}

@@ -3,11 +3,10 @@ package glasso
 import (
 	"fmt"
 	"math"
-	"strings"
 
+	u "github.com/araddon/gou"
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
-
 	"github.com/timkaye11/gostat/stat"
 )
 
@@ -55,6 +54,7 @@ func NewOLS(x *DataFrame) *OLS {
 		df:        rows - 1,
 		n:         rows,
 		p:         cols,
+		response:  make([]float64, rows),
 	}
 }
 
@@ -64,43 +64,41 @@ func (o *OLS) Train(yvector []float64) error {
 		return DimensionError
 	}
 
-	o.response = yvector
+	copy(o.response, yvector)
 	y := mat64.NewDense(len(yvector), 1, yvector)
+
 	o.x.PushCol(rep(1.0, o.x.rows))
 	x := o.x.data
 
-	fmt.Println(x.Col(nil, 0))
-	fmt.Println(x.Col(nil, 1))
-	fmt.Println(x.Col(nil, 2))
-	fmt.Println(x.Col(nil, 3))
 	// it's easier to do things with X = QR
-	qrFactor := mat64.QR(x)
+	qrFactor := mat64.QR(mat64.DenseCopyOf(x))
 	Q := qrFactor.Q()
-	R := qrFactor.R()
 
-	// calculate yhat (fitted values)
-	// y_hat = Q*Qt*y
-	qqt := &mat64.Dense{}
-	qqt.MulTrans(Q, false, Q, true)
-
-	yhat := &mat64.Dense{}
-	yhat.Mul(qqt, y)
-
-	o.fitted = yhat.Col(nil, 0)
-
-	// gotta find the betas (coefficients)
-	// Rβ = Qt y
-	Qty := &mat64.Dense{}
-	Qty.MulTrans(Q, true, y, false)
-
-	beta, err := mat64.Solve(R, Qty)
-	if err != nil {
-		return err
+	betas := qrFactor.Solve(mat64.DenseCopyOf(y))
+	o.betas = betas.Col(nil, 0)
+	if len(o.betas) != o.p {
+		u.Warnf("Unexpected dimension error. Betas: %v", o.betas)
 	}
 
-	o.betas = beta.Col(nil, 0)
+	// calculate residuals and fitted vals
+	/*
+		fitted := &mat64.Dense{}
+		fitted.Mul(x, betas)
+		o.fitted = fitted.Col(nil, 0)
+		y.Sub(y, fitted)
+		o.residuals = y.Col(nil, 0)
+	*/
 
-	// all good
+	// y_hat = Q Qt y
+	// e = y - y_hat
+	qqt := &mat64.Dense{}
+	qqt.MulTrans(Q, false, Q, true)
+	yhat := &mat64.Dense{}
+	yhat.Mul(qqt, y)
+	o.fitted = yhat.Col(nil, 0)
+	y.Sub(y, yhat)
+	o.residuals = y.Col(nil, 0)
+
 	return nil
 }
 
@@ -114,23 +112,30 @@ func (o *OLS) String() string {
 	q, _ := govector.AsVector(o.residuals)
 	points := []float64{0.0, 0.25, 0.5, 0.75, 1.0}
 	p, _ := govector.AsVector(points)
-	quantiles := q.Quantiles(p)
+	qnt := q.Quantiles(p)
+	f, fp := o.F_Statistic()
 
 	return fmt.Sprintf(`
-		Formula: response ~ %v
 		Residuals: 
 		Min  25  50t 75  Max: 
-		%v   %v  %v  %v  %v 
+		%v
 		
-		Coefficients: %v
+		Coefficients: 
+		%v
+
 		RSS: %v 
 		MSE: %v
 		Adjusted R-Squared: %v
-		R-squared: %v`,
-		strings.Join(o.x.labels, ","),
-		quantiles[0], quantiles[1], quantiles[2], quantiles[3], quantiles[4],
-		o.betas, o.ResidualSumofSquares(), o.MeanSquaredError(),
-		o.AdjustedRSquared(), o.RSquared())
+		R-squared: %v
+		F-statistic: %v with P-value: %v`,
+		roundAll(qnt),
+		roundAll(o.betas),
+		round(o.ResidualSumofSquares(), 3),
+		round(o.MeanSquaredError(), 3),
+		round(o.AdjustedRSquared(), 3),
+		round(o.RSquared(), 3),
+		round(f, 4), round(fp, 10),
+	)
 }
 
 // interface methods
@@ -162,13 +167,12 @@ func (o *OLS) ResidualSumofSquares() float64 {
 }
 
 func (o *OLS) RSquared() float64 {
-	return float64(1 - o.ResidualSumofSquares()/o.TotalSumofSquares())
+	return float64(1 - (o.ResidualSumofSquares() / o.TotalSumofSquares()))
 }
 
 func (o *OLS) MeanSquaredError() float64 {
-	n, _ := o.x.data.Dims()
-	fmt.Println(o.x.data)
-	return o.ResidualSumofSquares() / (float64(n) - 2.0)
+	n, p := o.x.data.Dims()
+	return o.ResidualSumofSquares() / (float64(n - p))
 }
 
 // the adjusted r-squared adjusts the r-squared value to reflect the importance of predictor variables
@@ -188,6 +192,21 @@ func (o *OLS) sdResiduals() float64 {
 	}
 
 	return math.Sqrt(ss / float64(o.n-2))
+}
+
+func (o *OLS) F_Statistic() (float64, float64) {
+	r1 := o.TotalSumofSquares()
+	r2 := o.ResidualSumofSquares()
+	p1 := float64(1)
+	p2 := float64(o.p)
+	denom1 := p2 - p1 + 1
+	denom2 := float64(o.n) - p2 - 1
+
+	f := (r1 - r2) / denom1
+	f /= r2 / denom2
+
+	Fdist := stat.F_CDF(denom1, denom2)
+	return f, 1.0 - Fdist(f)
 }
 
 func (o *OLS) Confidence_interval(alpha float64) [][2]float64 {
