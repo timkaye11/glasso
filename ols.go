@@ -157,13 +157,7 @@ func (o *OLS) TotalSumofSquares() float64 {
 }
 
 func (o *OLS) ResidualSumofSquares() float64 {
-	res, _ := govector.AsVector(o.residuals)
-
-	rss, err := govector.DotProduct(res, res)
-	if err != nil {
-		panic(err)
-	}
-	return rss
+	return sum(prod(o.residuals, o.residuals))
 }
 
 func (o *OLS) RSquared() float64 {

@@ -10,30 +10,35 @@ import (
 )
 
 const (
-	NCPU = 4
+	NCPU = 5
 )
 
-// Cooks Distance: do this concurrently
+// Parallel Cooks distance computation
 //
 // D_{i} = \frac{r_{i}^2}{p * MSE} * \frac{h_{ii}}{(1 - h_{ii})^2}
-//
 func (o *OLS) CooksDistance() []float64 {
 	runtime.GOMAXPROCS(NCPU)
 
+	// we need leverage and mse to compute cooks distance
 	h := o.LeveragePoints()
 	mse := o.MeanSquaredError()
 
-	c := make(chan int, NCPU)
-
 	dists := make([]float64, o.n)
+	p := float64(o.p + 1)
 
-	for i := 0; i < o.n; i++ {
-		go func(idx int) {
-			left := math.Pow(o.residuals[i], 2.0) / (float64(o.p) * mse)
-			right := h[i] / math.Pow(1-h[i], 2)
-			dists[idx] = left * right
-			c <- 1
-		}(i)
+	// for parallel computation
+	c := make(chan interface{}, NCPU)
+
+	// parallelize the cooks distance
+	for j := 0; j < NCPU; j++ {
+		go func(i, z int) {
+			for ; i < z; i++ {
+				left := math.Pow(o.residuals[i], 2.0) / (p * mse)
+				right := h[i] / math.Pow(1-h[i], 2)
+				dists[i] = left * right
+			}
+			c <- nil
+		}(j*o.n/NCPU, (j+1)*o.n/NCPU)
 	}
 
 	// drain the channel
@@ -53,29 +58,16 @@ func (o *OLS) CooksDistance() []float64 {
 //
 // Leverage points are considered large if they exceed 2p/ n
 func (o *OLS) LeveragePoints() []float64 {
-	x := o.x.data
+	x := mat64.DenseCopyOf(o.x.data)
 	qrf := mat64.QR(x)
 	q := qrf.Q()
 
-	// need to get first first p columns only
-	n, p := q.Dims()
-	trans := mat64.NewDense(n, p, nil)
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			if i == j && i < p {
-				trans.Set(i, j, 1.0)
-			}
-			trans.Set(i, j, 0.0)
-		}
-	}
-
 	H := &mat64.Dense{}
-	H.Mul(q, trans)
-	H.MulTrans(H, false, q, true)
-
+	H.MulTrans(q, false, q, true)
 	o.hat = H
 
 	// get diagonal elements
+	n, _ := q.Dims()
 	diag := make([]float64, n)
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
@@ -94,11 +86,24 @@ func (o *OLS) LeveragePoints() []float64 {
 // \hat{\epsilon} =
 func (o *OLS) StudentizedResiduals() []float64 {
 	t := make([]float64, o.n)
-	sigma := sd(o.residuals)
+	c := make(chan interface{}, NCPU)
+
+	sigma := math.Sqrt(o.ResidualSumofSquares() / float64(o.n-o.p-1))
 	h := o.LeveragePoints()
 
-	for i := 0; i < o.n; i++ {
-		t[i] = o.residuals[i] / (sigma * math.Sqrt(1-h[i]))
+	// parallelize calculation of studentized residuals
+	for j := 0; j < NCPU; j++ {
+		go func(i, z int) {
+			for ; i < z; i++ {
+				t[i] = o.residuals[i] / (sigma * math.Sqrt(1-h[i]))
+			}
+			c <- nil
+		}(j*o.n/NCPU, (j+1)*o.n/NCPU)
+	}
+
+	// drain the channel
+	for i := 0; i < NCPU; i++ {
+		<-c
 	}
 
 	return t
@@ -119,31 +124,36 @@ func (o *OLS) PRESS() []float64 {
 }
 
 // Calculates the variance-covariance matrix of the regression coefficients
-// defined as (XtX)-1
+// defined as sigma*(XtX)-1
 // Using QR decomposition: X = QR
-// ((QR)tQR)-1 ---> (RtQtQR)-1 ---> (RtR)-1 ---> R-1Rt-1
+// ((QR)tQR)-1 ---> (RtQtQR)-1 ---> (RtR)-1 ---> R-1Rt-1 --> sigma*R-1Rt-1
 //
 func (o *OLS) VarianceCovarianceMatrix() *mat64.Dense {
-	x := o.x.data
+	x := mat64.DenseCopyOf(o.x.data)
+	_, p := x.Dims()
 
 	// it's easier to do things with X = QR
 	qrFactor := mat64.QR(x)
 	R := qrFactor.R()
+	Rt := R.T()
 
-	Raug := mat64.NewDense(o.p, o.p, nil)
-	for i := 0; i < o.p; i++ {
-		for j := 0; j < o.p; j++ {
-			Raug.Set(i, j, R.At(i, j))
-		}
+	RtInv, err := mat64.Inverse(Rt)
+	if err != nil {
+		panic("Rt is not invertible")
 	}
 
-	Rinverse, err := mat64.Inverse(Raug)
+	Rinverse, err := mat64.Inverse(R)
 	if err != nil {
 		panic("R matrix is not invertible")
 	}
 
-	varCov := mat64.NewDense(o.p, o.p, nil)
-	varCov.MulTrans(Rinverse, false, Rinverse, true)
+	varCov := mat64.NewDense(p, p, nil)
+	varCov.Mul(Rinverse, RtInv)
+
+	// multiple each element by the mse
+	mse := o.MeanSquaredError()
+	mulEach := func(r, c int, v float64) float64 { return v * mse }
+	varCov.Apply(mulEach, varCov)
 
 	return varCov
 }
@@ -159,21 +169,25 @@ func (o *OLS) VarianceInflationFactors() []float64 {
 	// save a copy of the data
 	orig := mat64.DenseCopyOf(o.x.data)
 
-	vifs := make([]float64, o.p)
+	m := NewOLS(DfFromMat(orig))
 
-	for idx := 0; idx < o.p; idx++ {
+	n, p := orig.Dims()
+
+	vifs := make([]float64, p)
+
+	for idx := 0; idx < p; idx++ {
 		x := o.x.data
 
 		col := x.Col(nil, idx)
 
-		x.SetCol(idx, rep(0.0, o.n))
+		x.SetCol(idx, rep(1.0, n))
 
-		err := o.Train(col)
+		err := m.Train(col)
 		if err != nil {
 			panic("Error Occured calculating VIF")
 		}
 
-		vifs[idx] = 1.0 / (1.0 - o.RSquared())
+		vifs[idx] = 1.0 / (1.0 - m.RSquared())
 	}
 
 	// reset the data

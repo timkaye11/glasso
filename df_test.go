@@ -69,7 +69,6 @@ func TestPush(t *testing.T) {
 	assert.Equal(t, df.data.Row(nil, 0), []float64{3.1, 4.5, 6.5, 3.3})
 }
 
-/*
 // test transform dataframe function
 func TestTransformDF(t *testing.T) {
 	// a, b, c |
@@ -99,7 +98,6 @@ func TestTransformDF(t *testing.T) {
 	assert.Equal(t, sum(newB), 15.0) // shouldn't change
 	assert.Equal(t, sum(newC), 21.0)
 }
-*/
 
 // test apply function
 func TestApplyDF(t *testing.T) {
