@@ -104,8 +104,8 @@ func (o *OLS) Train(yvector []float64) error {
 
 //func (o *OLS) prediction
 
-func (o *OLS) Predict(x []float64) []float64 {
-	return []float64{}
+func (o *OLS) Predict(x []float64) float64 {
+	return sum(prod(x, o.betas))
 }
 
 func (o *OLS) String() string {

@@ -86,13 +86,17 @@ func (r *Ridge) Train(y []float64) error {
 	Y := mat64.NewDense(len(y), 1, y)
 	beta.Mul(beta, Y)
 
+	// save beta values
 	r.beta_ridge = beta.Col(nil, 0)
 
 	// find the fitted values : X * \beta_ridge
 	fitted := &mat64.Dense{}
 	fitted.Mul(r.x.data, beta)
-
 	r.fitted = fitted.Col(nil, 0)
+
+	// get residuals
+	fitted.Sub(fitted, Y)
+	r.residuals = fitted.Col(nil, 0)
 
 	return nil
 }

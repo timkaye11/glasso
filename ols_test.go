@@ -7,7 +7,7 @@ import (
 )
 
 func TestLeastSquares(t *testing.T) {
-	// make linearly independent columns
+	// Stackloss Data set from R
 	data := [][]float64{
 		{80.0, 27.0, 89.0},
 		{80.0, 27.0, 88.0},
@@ -35,14 +35,14 @@ func TestLeastSquares(t *testing.T) {
 	// make the data frame
 	df := NewDF(data)
 
-	// response variable for regression
+	// response
 	y := []float64{42.0, 37.0, 37.0, 28.0, 18.0, 18.0, 19.0, 20.0, 15.0, 14.0, 14.0, 13.0, 11.0, 12.0, 8.0, 7.0, 8.0, 8.0, 9.0, 15.0, 15.0}
 
 	// instantiate OLS struct
 	lm := NewOLS(df)
 
+	// train model
 	err := lm.Train(y)
-
 	assert.Equal(t, err, nil)
 
 	// compare values to output in summary() function in R

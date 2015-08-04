@@ -2,17 +2,20 @@ package glasso
 
 import (
 	"encoding/json"
-	"github.com/bmizerany/assert"
 	"testing"
+
+	"github.com/bmizerany/assert"
 )
 
 func TestEncoding(t *testing.T) {
+	// fake data
 	x := [][]float64{
 		{4.7, 7.4, 2.3, 4.4},
 		{2.2, 3.3, 1.9, 4.7},
 		{1.0, 9.2, 4.2, 2.2},
 	}
 
+	// fake OLS
 	o := &OLS{
 		x:         NewDF(x),
 		betas:     []float64{1.0, 2.0, 3.0},
@@ -20,6 +23,7 @@ func TestEncoding(t *testing.T) {
 		fitted:    []float64{1.1, 2.2, 3.3},
 	}
 
+	// check dimension
 	r, c := o.Data().data.Dims()
 	assert.Equal(t, r, 3)
 	assert.Equal(t, c, 4)
@@ -46,5 +50,5 @@ func TestEncoding(t *testing.T) {
 	ols := &OLS{}
 	err = json.Unmarshal(buf, ols)
 	assert.Equal(t, nil, err)
-	//fmt.Println(ols.Residuals())
+	t.Logf("Residuals: %v", ols.Residuals())
 }

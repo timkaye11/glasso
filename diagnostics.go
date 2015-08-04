@@ -322,14 +322,12 @@ func (o *OLS) F_Test(toRemove ...int) (fval, pval float64) {
 		panic("Too many columns to remove")
 	}
 
-	data := o.x.data
+	data := mat64.DenseCopyOf(o.x.data)
 	for _, col := range toRemove {
 		data = removeCol(data, col)
 	}
 
-	cols, rows := data.Dims()
-	df := &DataFrame{data: data, cols: cols, rows: rows}
-	ols := NewOLS(df)
+	ols := NewOLS(DfFromMat(data))
 
 	err := ols.Train(o.response)
 	if err != nil {
@@ -364,4 +362,10 @@ func (o *OLS) DW_Test() float64 {
 	d /= e.Apply(square).Sum()
 
 	return d
+}
+
+func (o *OLS) AIC() float64 {
+	sse := o.ResidualSumofSquares()
+	n, p := o.x.data.Dims()
+	return float64(n)*math.Log(sse/float64(n)) + (2.0 * (float64(p) + 1))
 }
