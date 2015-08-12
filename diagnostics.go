@@ -364,8 +364,18 @@ func (o *OLS) DW_Test() float64 {
 	return d
 }
 
+// n log(SSE(M) + 2(p(M)+1)
+// AIC = n log(SSE/n) + 2(p + 1).
 func (o *OLS) AIC() float64 {
 	sse := o.ResidualSumofSquares()
 	n, p := o.x.data.Dims()
 	return float64(n)*math.Log(sse/float64(n)) + (2.0 * (float64(p) + 1))
+}
+
+// n log(SSE(M) + (p(M)+1)log(n)
+// BIC = n log(SSE/n) + log(n)(p + 1).
+func (o *OLS) BIC() float64 {
+	sse := o.ResidualSumofSquares()
+	n, p := o.x.data.Dims()
+	return float64(n)*math.Log(sse/float64(n)) + (math.Log(float64(n)) * (float64(p) + 1))
 }
