@@ -33,7 +33,7 @@ func (df *DataFrame) Normalize() {
 }
 
 // Analogous to least squares boosting (trees = predictors)
-type ForwardStage struct {
+type LeastAngle struct {
 	x        *DataFrame
 	epsilon  float64 // how much to increase each beta by
 	delta    float64 // limit to the max correlation amongst variables
@@ -50,7 +50,7 @@ type ForwardStage struct {
 // Repeat
 //
 // Pretty much the same as least squares boosting
-func (f *ForwardStage) Train(y []float64) error {
+func (f *LeastAngle) Train(y []float64) error {
 	// first we need to standardize the matrix and scale y
 	// and set up variables
 	f.x.Standardize() // make sure x_j_bar = 0
@@ -64,38 +64,52 @@ func (f *ForwardStage) Train(y []float64) error {
 	x := mat64.NewDense(n, p, rep(0.0, n*p))
 	f.firstRun = true
 
-	// how do we know when to stop?
-	for f.isCorrelation(r) {
+	// find the most correlated variable
+	cors := make([]float64, 0, f.x.cols)
+	for i := 0; i < f.x.cols; i++ {
+		cors[i] = cor(f.x.data.Col(nil, i), y)
+	}
+	maxCor := max(cors)
+	maxIdx := sort.SearchFloat64s(cors, maxCor)
 
-		// find the most correlated variable
-		cors := make([]float64, 0, f.x.cols)
-		for i := 0; i < f.x.cols; i++ {
-			cors[i] = cor(f.x.data.Col(nil, i), y)
-		}
-		maxCor := max(cors)
-		maxIdx := sort.SearchFloat64s(cors, maxCor)
-
-		// update beta_j
-		// beta_j = beta_j + delta_j
-		// where delta_j = epsilon * sign(y, x_j)
+	stopCor := 1
+	for f.stop() {
 		x.SetCol(maxIdx, f.x.data.Col(nil, maxIdx))
-		//ols := NewOLS(&DataFrame{x, n, p, nil})
-		//ols.Train(r)
 
-		// update beta
 		delta := f.epsilon * sign(sum(prod(x.Col(nil, maxIdx), r)))
 		f.betas[maxIdx] += delta
 
-		// set r = r - delta_j * x_j
-		r = diff(r, multSlice(x.Col(nil, maxIdx), delta))
+		r = diff(y, multSlice(x.Col(nil, maxIdx), delta))
 
+		maxCor = cor(f.x.data.Col(nil, maxIdx), r)
+		for i := 0; i < f.x.Cols && i != maxIdx; i++ {
+			c := cor(f.x.data.Col(nil, i), r)
+			if c >= maxCor {
+				maxIdx = i
+			}
+		}
 	}
+
+	// update beta_j
+	// beta_j = beta_j + delta_j
+	// where delta_j = epsilon * sign(y, x_j)
+	x.SetCol(maxIdx, f.x.data.Col(nil, maxIdx))
+	//ols := NewOLS(&DataFrame{x, n, p, nil})
+	//ols.Train(r)
+
+	// update beta
+	delta := f.epsilon * sign(sum(prod(x.Col(nil, maxIdx), r)))
+	f.betas[maxIdx] += delta
+
+	// set r = r - delta_j * x_j
+	r = diff(r, multSlice(x.Col(nil, maxIdx), delta))
+
 	return nil
 }
 
 // we continue until the residuals are uncorrelated with the predictors up
 // to a certain delta
-func (f *ForwardStage) isCorrelation(y []float64) bool {
+func (f *LeastAngle) isCorrelation(y []float64) bool {
 	if f.firstRun {
 		f.firstRun = false
 		return true

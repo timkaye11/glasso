@@ -2,7 +2,7 @@
 
 [![Build Status](https://travis-ci.org/timkaye11/glasso.svg?branch=master)](https://travis-ci.org/timkaye11/glasso)
 
-**Todu**
+**Todo**
 
  - [x] ols (coefficients, fitted, resids)
  - [x] rss, tss, mse, aic, studentized resids
