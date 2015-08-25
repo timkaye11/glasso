@@ -1,36 +1,11 @@
 package glasso
 
+/*
 import (
 	"sort"
 
 	"github.com/gonum/matrix/mat64"
 )
-
-func (df *DataFrame) Standardize() {
-	d := df.data
-
-	n, p := d.Dims()
-
-	col := make([]float64, n)
-	for i := 0; i < p; i++ {
-		d.Col(col, i)
-
-		d.SetCol(i, standardize(col))
-	}
-}
-
-func (df *DataFrame) Normalize() {
-	d := df.data
-
-	n, p := d.Dims()
-
-	col := make([]float64, n)
-	for i := 0; i < p; i++ {
-		d.Col(col, i)
-
-		d.SetCol(i, normalize(col))
-	}
-}
 
 // Analogous to least squares boosting (trees = predictors)
 type LeastAngle struct {
@@ -125,3 +100,5 @@ func (f *LeastAngle) isCorrelation(y []float64) bool {
 	}
 	return true
 }
+
+*/

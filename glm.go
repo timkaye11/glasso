@@ -9,7 +9,7 @@ import (
 
 type linkFunc func(float64) float64
 
-type family interface {
+type Family interface {
 	Link() linkFunc
 	Derivative() linkFunc
 	Variance() linkFunc
@@ -104,22 +104,24 @@ func (i *invNormal) Variance() linkFunc {
 	}
 }
 
+/*
 var canonicalLinks = map[string]linkFunc{
-	"normal":      Identity,
+	//"normal":      Identity,
 	"exponential": Inverse,
 	"gamma":       Inverse,
 	"poisson":     Inverse,
 	"bernoulli":   Logit,
 	"binomial":    Logit,
 }
+*/
 
-var families = map[string]family{
-	"binomial":         binomial,
-	"poisson":          poisson,
-	"inverse gaussian": invNormal,
-	"inverse normal":   invNormal,
-	"gamma":            gamma,
-	"bernoulli":        binomial,
+var families = map[string]Family{
+	"binomial":         &binomial{},
+	"poisson":          &poisson{},
+	"inverse gaussian": &invNormal{},
+	"inverse normal":   &invNormal{},
+	"gamma":            &gamma{},
+	"bernoulli":        &binomial{},
 }
 
 type GLM struct {
@@ -140,16 +142,16 @@ func Train(A *mat64.Dense, b []float64, family string, maxIt int) error {
 	if !ok {
 		errors.New("wtf?")
 	}
-	var _ family = (*fam)(nil) // check to see if this implements family
+
 	link := fam.Link()
 	mu_eta := fam.Derivative()
 	variance := fam.Variance()
 
 	empty := rep(0.0, ncol)
-	x = mat64.NewDense(ncol, 1, empty)
+	x := mat64.NewDense(ncol, 1, empty)
 
 	for i := 0; i < maxIt; i++ {
-		eta := *mat64.Dense{}
+		eta := &mat64.Dense{}
 		eta.Mul(A, x)
 
 		g := make([]float64, 0, nrow)
@@ -159,10 +161,27 @@ func Train(A *mat64.Dense, b []float64, family string, maxIt int) error {
 		for i, val := range eta.Col(nil, 0) {
 			g[i] = link(val)
 			// gprime[i] = mu_eta(val)
-			gprime[i] = mu_eta(val), 2.0
+			gprime[i] = mu_eta(val)
 
 			w[i] = math.Pow(gprime[i], 2.0) / variance(g[i])
 		}
 
+		// z = eta + (b - g) / gprime
+		z := make([]float64, nrow)
+		for i, et := range eta.Col(nil, 0) {
+			z[i] = et + (b[i]-g[i])/gprime[i]
+		}
+
+		AWA := _
+
+		AWZ := _
+
+		x, err := mat64.Solve(AWA, AWZ)
+		if err != nil {
+			return err
+		}
+
+		C := mat64.Sol
 	}
+	return nil
 }
