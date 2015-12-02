@@ -1,10 +1,12 @@
 package np
 
-import "errors"
+import "fmt"
 
 var (
-	DimensionError = errors.New("Dimension Mismatch")
+	DimensionError = fmt.Errorf("dimension mismatch")
 )
+
+type Coefficients [4]float64
 
 // Application of the Stone-Weierstrauus Theorem
 // |f(x) - P(x)| < e
@@ -14,12 +16,12 @@ var (
 // Satisfies the natural boundary conditions (smoothness conditions)
 // a = x[0], ..., x[n] = b
 // S''(a) = S''(b) = 0
-func CubicSpline(x, a []float64) ([]float64, [][4]float64, error) {
-	if len(x) != len(a) {
+func CubicSpline(x, y []float64) ([]float64, []Coefficients, error) {
+	if len(x) != len(y) {
 		return nil, nil, DimensionError
 	}
 
-	n := len(x) - 1
+	n := len(y) - 1
 	h := make([]float64, n)
 	for i := range h {
 		h[i] = x[i+1] - x[i]
@@ -27,7 +29,7 @@ func CubicSpline(x, a []float64) ([]float64, [][4]float64, error) {
 
 	alpha := make([]float64, n)
 	for i := 1; i < n; i++ {
-		alpha[i] = (3/h[i])*(a[i+1]-a[i]) - (3/h[i-1])*(a[i]-a[i-1])
+		alpha[i] = (3/h[i])*(y[i+1]-y[i]) - (3/h[i-1])*(y[i]-y[i-1])
 	}
 
 	l := make([]float64, n)
@@ -52,13 +54,13 @@ func CubicSpline(x, a []float64) ([]float64, [][4]float64, error) {
 
 	for j := n - 1; j >= 0; j-- {
 		c[j] = z[j] - mu[j]*c[j+1]
-		b[j] = (a[j+1] - a[j]) / (h[j] - h[j]*(c[j+1]+2*c[j])) / 3
+		b[j] = (y[j+1] - y[j]) / (h[j] - h[j]*(c[j+1]+2*c[j])) / 3
 		d[j] = (c[j+1] - c[j]) / (3 * h[j])
 	}
 
-	coefficients := make([][4]float64, n)
+	coefficients := make([]Coefficients, n)
 	for i := 0; i < n; i++ {
-		coefficients[i] = [4]float64{a[i], c[i], b[i], d[i]}
+		coefficients[i] = Coefficients{y[i], c[i], b[i], d[i]}
 	}
 
 	return x, coefficients, nil

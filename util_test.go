@@ -18,7 +18,8 @@ func TestRemoveRow(t *testing.T) {
 	assert.Equal(t, r, 2)
 	assert.Equal(t, c, 4)
 
-	data = removeRow(data, 0)
+	data, err := removeRow(data, 0)
+	assert.Equal(t, nil, err)
 	for _, x := range data.Row(nil, 0) {
 		assert.Equal(t, x, 2.0)
 	}
@@ -38,7 +39,8 @@ func TestRemoveCol(t *testing.T) {
 	assert.Equal(t, r, 4)
 	assert.Equal(t, c, 2)
 
-	data = removeCol(data, 0)
+	data, err := removeCol(data, 0)
+	assert.Equal(t, nil, err)
 	for _, x := range data.Col(nil, 0) {
 		assert.Equal(t, x, 2.0)
 	}

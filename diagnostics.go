@@ -1,50 +1,48 @@
 package glasso
 
 import (
+	"log"
 	"math"
 	"runtime"
+	"sync"
 
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
 	"github.com/timkaye11/gostat/stat"
 )
 
-const (
+var (
 	NCPU = 5
 )
+
+func init() {
+	runtime.GOMAXPROCS(NCPU)
+}
 
 // Parallel Cooks distance computation
 //
 // D_{i} = \frac{r_{i}^2}{p * MSE} * \frac{h_{ii}}{(1 - h_{ii})^2}
 func (o *OLS) CooksDistance() []float64 {
-	runtime.GOMAXPROCS(NCPU)
-
-	// we need leverage and mse to compute cooks distance
 	h := o.LeveragePoints()
 	mse := o.MeanSquaredError()
 
 	dists := make([]float64, o.n)
 	p := float64(o.p + 1)
-
-	// for parallel computation
-	c := make(chan interface{}, NCPU)
+	var wg sync.WaitGroup
 
 	// parallelize the cooks distance
 	for j := 0; j < NCPU; j++ {
+		wg.Add(1)
 		go func(i, z int) {
+			defer wg.Done()
 			for ; i < z; i++ {
 				left := math.Pow(o.residuals[i], 2.0) / (p * mse)
 				right := h[i] / math.Pow(1-h[i], 2)
 				dists[i] = left * right
 			}
-			c <- nil
 		}(j*o.n/NCPU, (j+1)*o.n/NCPU)
 	}
-
-	// drain the channel
-	for i := 0; i < NCPU; i++ {
-		<-c
-	}
+	wg.Done()
 
 	return dists
 }
@@ -86,25 +84,22 @@ func (o *OLS) LeveragePoints() []float64 {
 // \hat{\epsilon} =
 func (o *OLS) StudentizedResiduals() []float64 {
 	t := make([]float64, o.n)
-	c := make(chan interface{}, NCPU)
+	var wg sync.WaitGroup
 
 	sigma := math.Sqrt(o.ResidualSumofSquares() / float64(o.n-o.p-1))
 	h := o.LeveragePoints()
 
 	// parallelize calculation of studentized residuals
 	for j := 0; j < NCPU; j++ {
+		wg.Add(1)
 		go func(i, z int) {
+			defer wg.Done()
 			for ; i < z; i++ {
 				t[i] = o.residuals[i] / (sigma * math.Sqrt(1-h[i]))
 			}
-			c <- nil
 		}(j*o.n/NCPU, (j+1)*o.n/NCPU)
 	}
-
-	// drain the channel
-	for i := 0; i < NCPU; i++ {
-		<-c
-	}
+	wg.Wait()
 
 	return t
 }
@@ -139,12 +134,14 @@ func (o *OLS) VarianceCovarianceMatrix() *mat64.Dense {
 
 	RtInv, err := mat64.Inverse(Rt)
 	if err != nil {
-		panic("Rt is not invertible")
+		log.Println("Rt is not invertible")
+		return nil
 	}
 
 	Rinverse, err := mat64.Inverse(R)
 	if err != nil {
-		panic("R matrix is not invertible")
+		log.Println("R matrix is not invertible")
+		return nil
 	}
 
 	varCov := mat64.NewDense(p, p, nil)
@@ -152,7 +149,7 @@ func (o *OLS) VarianceCovarianceMatrix() *mat64.Dense {
 
 	// multiple each element by the mse
 	mse := o.MeanSquaredError()
-	mulEach := func(r, c int, v float64) float64 { return v * mse }
+	mulEach := func(_, _ int, v float64) float64 { return v * mse }
 	varCov.Apply(mulEach, varCov)
 
 	return varCov
@@ -196,30 +193,6 @@ func (o *OLS) VarianceInflationFactors() []float64 {
 	return vifs
 }
 
-// DFBETAS
-//
-//
-func (o *OLS) DFBETA() []float64 {
-	runtime.GOMAXPROCS(NCPU)
-
-	c := make(chan int, NCPU)
-
-	dfs := make([]float64, o.n)
-
-	for i := 0; i < o.n; i++ {
-		go func() {
-			dfs[i] = 0.0
-			c <- 1
-		}()
-	}
-
-	for i := 0; i < NCPU; i++ {
-		<-c
-	}
-
-	return dfs
-}
-
 // DFFITS - influence of single fitted value
 // = \hat{Y_{i}} - \hat{Y_{i(i)}} / \sqrt{MSE_{(i)} h_{ii}}
 // influential if larger than 1
@@ -229,15 +202,13 @@ func (o *OLS) DFFITS() []float64 {
 	fitted := o.fitted
 	leverage := o.LeveragePoints()
 
-	runtime.GOMAXPROCS(NCPU)
-
-	c := make(chan int, NCPU)
-
 	dffits := make([]float64, o.n)
+	var wg sync.WaitGroup
 
 	o.n--
 
 	for i := 0; i < len(dffits); i++ {
+		wg.Add(1)
 		go func(i int) {
 			o.x.data = removeRow(o.x.data, i)
 
@@ -250,14 +221,10 @@ func (o *OLS) DFFITS() []float64 {
 
 			dffits[i] = fitted[i] - loo_fitted[i]
 			dffits[i] /= math.Sqrt(o.MeanSquaredError() * leverage[i])
-
-			c <- 1
+			wg.Done()
 		}(i)
 	}
-
-	for i := 0; i < NCPU; i++ {
-		<-c
-	}
+	wg.Wait()
 
 	o.x.data = orig
 	o.n++
@@ -319,19 +286,21 @@ func (o *OLS) Z_Scores() []float64 {
 //
 func (o *OLS) F_Test(toRemove ...int) (fval, pval float64) {
 	if len(toRemove) > (o.p - 1) {
-		panic("Too many columns to remove")
+		log.Println("Too many columns to remove")
+		return 0.0, 0.0
 	}
 
 	data := mat64.DenseCopyOf(o.x.data)
 	for _, col := range toRemove {
-		data = removeCol(data, col)
+		data, _ = removeCol(data, col)
 	}
 
 	ols := NewOLS(DfFromMat(data))
 
 	err := ols.Train(o.response)
 	if err != nil {
-		panic(err)
+		log.Printf("Error in F-Test: %v", err)
+		return 0.0, 0.0
 	}
 
 	d1 := float64(o.p - ols.p)
@@ -353,7 +322,8 @@ func (o *OLS) F_Test(toRemove ...int) (fval, pval float64) {
 func (o *OLS) DW_Test() float64 {
 	e, err := govector.AsVector(o.residuals)
 	if err != nil {
-		panic(err)
+		log.Printf("error in Durbin Watson: %v", err)
+		return 0.0
 	}
 
 	square := func(x float64) float64 { return math.Pow(x, 2) }

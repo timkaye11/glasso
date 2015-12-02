@@ -6,116 +6,90 @@ import (
 	"github.com/bmizerany/assert"
 )
 
-// make sure everything is constructed OK
-func TestMakeDF(t *testing.T) {
-	// make dataframe
-	// fill by column
-	//
-	// 1.1 	4.4   7.7
-	// 2.2 ...
-	data := []float64{1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8, 9.9}
-	labels := []string{"a", "", "c"}
+func makeDF() *DataFrame {
+	data := [][]float64{
+		{1.1, 4.4, 7.7},
+		{2.2, 5.5, 8.8},
+		{3.3, 6.6, 9.9},
+	}
+	labels := []string{"a", "b", "c"}
 
-	df, err := DF(data, labels)
-	assert.Equal(t, err, nil)
-	assert.Equal(t, df.rows, 3)
-	assert.Equal(t, df.cols, 3)
-
-	t.Logf("First column: %v", df.data.Col(nil, 0))
-	t.Logf("Second column: %v", df.data.Col(nil, 1))
+	return NewDataFrame(data, labels)
 }
 
-func TestNewDF(t *testing.T) {
-	data := [][]float64{
-		{1.0, 2.2, 4.4},
-		{4.4, 2.2, 1.0},
-		{3.3, 2.1, 5.6},
-	}
-
-	df := NewDF(data)
-	t.Logf("First column: %v", df.data.Col(nil, 0))
-	t.Logf("Second column: %v", df.data.Col(nil, 1))
+func TestMakeDF(t *testing.T) {
+	df := makeDF()
+	assert.Equal(t, df.n, 3)
+	assert.Equal(t, df.c, 3)
 }
 
 func TestAppend(t *testing.T) {
-	data := [][]float64{
-		{1.0, 2.2, 4.4},
-		{4.4, 2.2, 1.0},
-		{3.3, 2.1, 5.6},
-	}
+	df := makeDF()
 
-	df := NewDF(data)
+	col := []float64{4.7, 8.8, 9.2}
+	err := df.AppendCol(col)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, col, df.GetCol(df.c-1))
 
-	df.AppendCol([]float64{4.7, 8.8, 9.2})
-	assert.Equal(t, df.data.Col(nil, 3), []float64{4.7, 8.8, 9.2})
-
-	df.AppendRow([]float64{3.1, 4.5, 6.5, 3.3})
-	assert.Equal(t, df.data.Row(nil, 3), []float64{3.1, 4.5, 6.5, 3.3})
+	row := []float64{3.1, 4.5, 6.5, 3.3}
+	err = df.AppendRow(row)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, row, df.GetRow(df.n-1))
 }
 
 func TestPush(t *testing.T) {
-	data := [][]float64{
-		{1.0, 2.2, 4.4},
-		{4.4, 2.2, 1.0},
-		{3.3, 2.1, 5.6},
-	}
+	df := makeDF()
 
-	df := NewDF(data)
+	col := []float64{4.7, 8.8, 9.2}
+	err := df.PushCol(col)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, col, df.GetCol(0))
 
-	df.PushCol([]float64{4.7, 8.8, 9.2})
-	assert.Equal(t, df.data.Col(nil, 0), []float64{4.7, 8.8, 9.2})
-
-	df.PushRow([]float64{3.1, 4.5, 6.5, 3.3})
-	assert.Equal(t, df.data.Row(nil, 0), []float64{3.1, 4.5, 6.5, 3.3})
+	row := []float64{3.1, 4.5, 6.5, 3.3}
+	err = df.PushRow(row)
+	assert.Equal(t, nil, err)
+	assert.Equal(t, row, df.GetRow(0))
 }
 
-// test transform dataframe function
 func TestTransformDF(t *testing.T) {
-	// a, b, c |
-	//---------|
-	// 1, 2, 3 |
-	// 4, 5, 6 |
-	// 7, 8, 9 |
-	//---------/
-	// sum : 12, 15, 18
+	df := makeDF()
 
-	data := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9}
-	labels := []string{"a", "b", "c"}
-	df, _ := DF(data, labels)
-
-	// silyl transformation function
-	add1 := func(x float64) float64 {
+	// use a trivial evaluator.
+	var simple Evaluator
+	simple = func(x float64) float64 {
 		return x + 1
 	}
 
-	// add 1 to every number in cols "a" & "c"
-	df.Transform(add1, 0, 2)
-	newA := df.data.Col(nil, 0)
-	newB := df.data.Col(nil, 1)
-	newC := df.data.Col(nil, 2)
+	// apply transformation to 0th, and 2nd columns.
+	df.Transform(simple, 0, 2)
+	vals := []float64{df.GetCol(0), df.GetCol(1), df.GetCol(2)}
 
-	assert.Equal(t, sum(newA), 15.0)
-	assert.Equal(t, sum(newB), 15.0) // shouldn't change
-	assert.Equal(t, sum(newC), 21.0)
+	// (1.1 + 2.2 + 3.3) + 1 = 7.6
+	// (4.4 + 5.5 + 6.6) 	 = 16.5
+	// (7.7 + 8.8 + 9.9) + 1 = 27.4
+	expected := []float64{7.6, 16.5, 27.4}
+	assertEqual(t, vals, expected)
 }
 
-// test apply function
+func assertEqual(t *testing.T, x, y []float64) {
+	assert.Equal(t, len(x), len(y))
+	for i := range x {
+		assert.Equal(t, x[i], y[i])
+	}
+}
+
 func TestApplyDF(t *testing.T) {
-	// make data
-	data := []float64{
-		1, 2, 3,
-		2, 3, 1,
-		3, 1, 2,
+	df := makeDF()
+
+	{
+		colsums := df.Apply(sum, true, nil)
+		expected := []float64{6.6, 16.5, 26.4}
+		assertEqual(t, colsums, expected)
+
 	}
-	labels := []string{"a", "b", "c"}
-	df, _ := DF(data, labels)
-
-	colProds := df.Apply(mult, true, 0, 1, 2)
-	rowProds := df.Apply(mult, false, 0, 1, 2)
-
-	// all the products should equal 6
-	for i := 0; i < 3; i++ {
-		assert.T(t, colProds[i] == rowProds[i])
+	{
+		rowsums := df.Apply(sum, false, nil)
+		expected := []float64{13.2, 16.5, 19.8}
+		assertEqual(t, rowsums, expected)
 	}
-
 }

@@ -1,6 +1,7 @@
 package glasso
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/gonum/matrix/mat64"
@@ -21,7 +22,6 @@ func round(val float64, places int) float64 {
 
 func roundAll(x []float64) []float64 {
 	f := make([]float64, len(x))
-	copy(f, x)
 	for i, val := range f {
 		f[i] = round(val, 3)
 	}
@@ -57,7 +57,6 @@ func variance(x []float64) float64 {
 	}
 
 	m := mean(x)
-
 	ss := 0.0
 	for _, v := range x {
 		ss += math.Pow(v-m, 2.0)
@@ -81,12 +80,9 @@ func prod(x, y []float64) []float64 {
 
 func cor(x, y []float64) float64 {
 	n := float64(len(x))
-
 	xy := prod(x, y)
-
 	sx := sd(x)
 	sy := sd(y)
-
 	mx := mean(x)
 	my := mean(y)
 
@@ -101,44 +97,40 @@ func rep(val float64, times int) []float64 {
 	return out
 }
 
-func removeCol(df *mat64.Dense, col int) *mat64.Dense {
+func removeCol(df *mat64.Dense, col int) (*mat64.Dense, error) {
 	r, c := df.Dims()
 	if col > c || col < 0 {
-		panic("Column Index not supported")
+		return nil, DimensionError
 	}
 
-	cop := mat64.NewDense(r, c-1, nil)
-
+	cp := mat64.NewDense(r, c-1, nil)
 	m := 0
-
 	for i := 0; i < c; i++ {
 		if i != col {
-			cop.SetCol(m, df.Col(nil, i))
+			cp.SetCol(m, df.Col(nil, i))
 			m++
 		}
 	}
 
-	return cop
+	return cp, nil
 }
 
-func removeRow(df *mat64.Dense, row int) *mat64.Dense {
+func removeRow(df *mat64.Dense, row int) (*mat64.Dense, error) {
 	r, c := df.Dims()
 	if row > r || row < 0 {
-		panic("Row Index not supported")
+		return nil, DimensionError
 	}
 
-	cop := mat64.NewDense(r-1, c, nil)
-
+	cp := mat64.NewDense(r-1, c, nil)
 	m := 0
-
 	for i := 0; i < r; i++ {
 		if i != row {
-			cop.SetRow(m, df.Row(nil, i))
+			cp.SetRow(m, df.Row(nil, i))
 			m++
 		}
 	}
 
-	return cop
+	return cp, nil
 }
 
 func standardize(x []float64) []float64 {
@@ -157,24 +149,20 @@ func standardize(x []float64) []float64 {
 
 func normalize(x []float64) []float64 {
 	s := sum(x)
-
 	cp := make([]float64, len(x))
-	copy(x, cp)
 
 	for i := 0; i < len(cp); i++ {
-		cp[i] /= s
+		cp[i] = x[i] / s
 	}
 	return cp
 }
 
 func subtractMean(x []float64) []float64 {
 	m := mean(x)
-
 	cp := make([]float64, len(x))
-	copy(x, cp)
 
 	for i := 0; i < len(cp); i++ {
-		cp[i] -= m
+		cp[i] = x[i] - m
 	}
 	return cp
 }
@@ -198,40 +186,58 @@ func sign(x float64) float64 {
 
 func addSlice(x []float64, val float64) []float64 {
 	cp := make([]float64, len(x))
-	copy(x, cp)
-
-	for i, _ := range cp {
-		cp[i] += val
+	for i := range cp {
+		cp[i] = x[i] + val
 	}
 	return cp
 }
 
 func subSlice(x []float64, val float64) []float64 {
 	cp := make([]float64, len(x))
-	copy(x, cp)
-
-	for i, _ := range cp {
-		cp[i] -= val
+	for i := range cp {
+		cp[i] = x[i] - val
 	}
 	return cp
 }
 
 func multSlice(x []float64, val float64) []float64 {
 	cp := make([]float64, len(x))
-	copy(x, cp)
-
-	for i, _ := range cp {
-		cp[i] *= val
+	for i := range cp {
+		cp[i] = x[i] * val
 	}
 	return cp
 }
 
 func diff(x, y []float64) []float64 {
-	cp := make([]float64, len(x))
-	copy(x, cp)
+	if len(x) != len(y) {
+		return nil
+	}
 
-	for i, val := range y {
-		cp[i] -= val
+	cp := make([]float64, len(x))
+	for i := range y {
+		cp[i] = x[i] - y[i]
 	}
 	return cp
+}
+
+func contains(x interface{}, values []interface{}) bool {
+	for _, v := range values {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
+func seq(start, end, by int) []int {
+	if start > end || by > (end-start) {
+		fmt.Println("fuck")
+		return nil
+	}
+
+	s := make([]int, (end-start)/by+1)
+	for i := range s {
+		s[i] = start + i*by
+	}
+	return s
 }
