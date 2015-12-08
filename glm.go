@@ -116,17 +116,17 @@ var canonicalLinks = map[string]linkFunc{
 */
 
 var families = map[string]Family{
-	"binomial":         &binomial{},
-	"poisson":          &poisson{},
-	"inverse gaussian": &invNormal{},
-	"inverse normal":   &invNormal{},
-	"gamma":            &gamma{},
-	"bernoulli":        &binomial{},
+	"binomial":         new(binomial),
+	"poisson":          new(poisson),
+	"inverse gaussian": new(invNormal),
+	"inverse normal":   new(invNormal),
+	"gamma":            new(gammma),
+	"bernoulli":        new(binomial),
 }
 
 type GLM struct {
-	Family string `json:"family"`
-	Link   linkFunc
+	Family string
+	Link   Family
 }
 
 func NewGLM(y []float64, x *mat64.Dense, family, link string) *GLM {

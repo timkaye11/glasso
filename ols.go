@@ -10,17 +10,6 @@ import (
 	"github.com/timkaye11/gostat/stat"
 )
 
-// Regression Output
-type Model interface {
-	// Build a linear model. Additional arguments specified in the constructor
-	Train(response []float64) error
-	//Predict(x []float64) []float64
-	Residuals() []float64
-	Data() *DataFrame
-	Coefficients() []float64
-	Yhat() []float64
-}
-
 // Ordinary Least Squares regression using QR factorization
 // Y = β_0 + Σ x_j β_j
 // β = (XtX)^-1 Xt y
