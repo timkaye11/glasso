@@ -1,10 +1,7 @@
 package glasso
 
 import (
-	"errors"
 	"math"
-
-	"github.com/gonum/matrix/mat64"
 )
 
 type linkFunc func(float64) float64
@@ -124,6 +121,7 @@ var families = map[string]Family{
 	"bernoulli":        &binomial{},
 }
 
+/*
 type GLM struct {
 	Family string `json:"family"`
 	Link   linkFunc
@@ -185,3 +183,4 @@ func Train(A *mat64.Dense, b []float64, family string, maxIt int) error {
 	}
 	return nil
 }
+*/

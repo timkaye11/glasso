@@ -82,7 +82,7 @@ func (r *Ridge) Train(y []float64) error {
 	// solve for beta_ridge
 	beta := &mat64.Dense{}
 	beta.Mul(V, D)
-	beta.MulTrans(beta, false, U, true)
+	beta.Mul(beta, U.T())
 	Y := mat64.NewDense(len(y), 1, y)
 	beta.Mul(beta, Y)
 

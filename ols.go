@@ -92,7 +92,7 @@ func (o *OLS) Train(yvector []float64) error {
 	// y_hat = Q Qt y
 	// e = y - y_hat
 	qqt := &mat64.Dense{}
-	qqt.MulTrans(Q, false, Q, true)
+	qqt.Mul(Q, Q.T())
 	yhat := &mat64.Dense{}
 	yhat.Mul(qqt, y)
 	o.fitted = yhat.Col(nil, 0)

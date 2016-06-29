@@ -1,8 +1,6 @@
 package glasso
 
 import (
-	"math"
-
 	"github.com/gonum/matrix/mat64"
 )
 
@@ -26,26 +24,49 @@ func NewPCR(x *DataFrame, m int) *PCR {
 	}
 }
 
-func (p *PCR) GetPrinComps() *mat64.Dense {
+/*
+func (p *PCR) GetPrinComps(k float64) *mat64.Dense {
 	epsilon := math.Pow(2, -52.0)
 	small := math.Pow(2, -966.0)
 
 	svd := mat64.SVD(mat64.DenseCopyOf(p.x.data), epsilon, small, false, true)
 
-	V := svd.V
+	// Sigma is a square + diagonal matrix
+	eigenvalues := svd.Sigma
+	l := len(S)
+
+	sum := 0.0
+	for i := 0; i < r; i++ {
+		sum += eigenvalues[i]
+	}
+	for i := 0; i < r; i++ {
+		eigenvalues[i] /= sum
+	}
+	varexplained := 0.0
 
 	r, c := p.x.rows, p.x.cols
-
-	for i := 0; i < p.x.cols; i++ {
-		v_i := V.Col(nil, i)
-		xv := mat64.NewDense(r, c, v_i)
-
-		xv.Mul(p.x.data, xv)
-
-		p.z.data.SetCol(i, xv.Col(nil, i))
+	if k > c {
+		log.Println("cannot have k (cutoff) > # columns")
+		return nil
 	}
 
-	return p.z.data
+	// projection matrix W:
+	W := mat64.NewDense(c, k, nil)
+	// eigenvectors
+	V := svd.V
+	for i := 0; i < k; i++ {
+		var col []float64
+		V.Col(col, i)
+		W.SetCol(i, col)
+		varexplained += eigenvalues[i]
+	}
+
+	log.Printf(`Projection matrix created. \%%d of data explained`, varexplained)
+
+	out := &mat64.Dense{}
+	out.Mul(p.z.data, W)
+
+	return out
 }
 
 // Principal component regression forms the derived input columns zm = Xvm
@@ -68,3 +89,4 @@ func (p *PCR) Train(y []float64) error {
 	// ...
 	return nil
 }
+*/

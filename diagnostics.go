@@ -63,7 +63,7 @@ func (o *OLS) LeveragePoints() []float64 {
 	q := qrf.Q()
 
 	H := &mat64.Dense{}
-	H.MulTrans(q, false, q, true)
+	H.Mul(q, q.T())
 	o.hat = H
 
 	// get diagonal elements
