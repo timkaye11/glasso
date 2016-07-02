@@ -1,186 +1,227 @@
 package glasso
 
 import (
+	"fmt"
+	"github.com/gonum/matrix/mat64"
 	"math"
 )
 
-type linkFunc func(float64) float64
+type fnType uint8
 
-type Family interface {
-	Link() linkFunc
-	Derivative() linkFunc
-	Variance() linkFunc
+const (
+	Link fnType = iota
+	Derivative
+	Variance
+)
+
+type evalFn func(float64) float64
+
+type Family struct {
+	LinkFn       evalFn
+	VarianceFn   evalFn
+	DerivativeFn evalFn
 }
 
-// Binomial
-type binomial struct{}
+func NewFamily(l, d, v evalFn) Family {
+	return Family{
+		LinkFn:       l,
+		VarianceFn:   v,
+		DerivativeFn: d,
+	}
+}
+
+var (
+	Binomial  = NewFamily(binomialLink, binomialDerivative, binomialVariance)
+	Poisson   = NewFamily(poissonLink, poissonDerivative, poissonVariance)
+	Gamma     = NewFamily(gammaLink, gammaDerivative, gammaVariance)
+	InvNormal = NewFamily(invnLink, invnDerivative, invnVariance)
+)
+
+// -------------------------- //
+//          Binomial
+// -------------------------- //
 
 // logistic link function
-func (b *binomial) Link() linkFunc {
-	return func(x float64) float64 {
-		return 1 / (1 + math.Exp(-x))
-	}
+func binomialLink(x float64) float64 {
+	return 1 / (1 + math.Exp(-x))
 }
 
 // derivative of logistic f(x) = f(x) * (1 - f(x))
-func (b *binomial) Derivative() linkFunc {
-	return func(x float64) float64 {
-		l := 1 / (1 + math.Exp(-x))
-		return l * (1 - l)
-	}
+func binomialDerivative(x float64) float64 {
+	l := 1 / (1 + math.Exp(-x))
+	ans := l * (1 - l)
+	return ans
 }
 
 // mean = x 	variance = np(1 - p) = p - p^2
-func (b *binomial) Variance() linkFunc {
-	return func(x float64) float64 {
-		return x - math.Pow(x, 2.0)
-	}
+func binomialVariance(x float64) float64 {
+	return x - math.Pow(x, 2.0)
 }
 
-// Poisson
-type poisson struct{}
+// -------------------------- //
+//          Poisson
+// -------------------------- //
 
 // exponential link function
-func (p *poisson) Link() linkFunc {
-	return func(x float64) float64 {
-		return math.Exp(x)
-	}
+func poissonLink(x float64) float64 {
+	return math.Exp(x)
 }
 
-func (p *poisson) Derivative() linkFunc {
-	return p.Link()
+func poissonDerivative(x float64) float64 {
+	return poissonLink(x)
 }
 
-func (p *poisson) Variance() linkFunc {
-	return func(x float64) float64 { return x }
+func poissonVariance(x float64) float64 {
+	return x
 }
 
-// Gammma
-type gamma struct{}
+// -------------------------- //
+//          Gamma
+// -------------------------- //
 
 // inverse link function: 1/x
-func (g *gamma) Link() linkFunc {
-	return func(x float64) float64 {
-		return 1 / x
-	}
+func gammaLink(x float64) float64 {
+	return 1 / x
 }
 
 // derivative of link: 1/x^2
-func (g *gamma) Derivative() linkFunc {
-	return func(x float64) float64 {
-		return 1 / math.Pow(x, 2.0)
-	}
+func gammaDerivative(x float64) float64 {
+	return 1 / math.Pow(x, 2.0)
 }
 
 // variance of gamma dist: kx^2, but k=1
-func (g *gamma) Variance() linkFunc {
-	return func(x float64) float64 {
-		return math.Pow(x, 2.0)
-	}
+func gammaVariance(x float64) float64 {
+	return math.Pow(x, 2.0)
 }
 
-// Inverse Normal
-type invNormal struct{}
+// -------------------------- //
+//       Inverse Normal
+// -------------------------- //
 
 // Link function: 1 / sqrt(x)
-func (i *invNormal) Link() linkFunc {
-	return func(x float64) float64 { return 1 / math.Sqrt(x) }
-}
+
+func invnLink(x float64) float64 { return 1 / math.Sqrt(x) }
 
 // Derivative of Link: - (x ^ 3/2) / 2
-func (i *invNormal) Derivative() linkFunc {
-	return func(x float64) float64 {
-		return -0.5 * math.Pow(x, -1.5)
-	}
+
+func invnDerivative(x float64) float64 {
+	return -0.5 * math.Pow(x, -1.5)
 }
 
 // Variance : mu^3 / lambda , lambda = 1
-func (i *invNormal) Variance() linkFunc {
-	return func(x float64) float64 {
-		return math.Pow(x, 3.0)
+func invnVariance(x float64) float64 {
+	return math.Pow(x, 3.0)
+}
+
+const DefaultTolerance = .000001
+
+// The GamConfig specifies the desired family, and other model configurations
+type GLMConfig struct {
+	F         Family  // Distribution family for the GLM
+	MaxIt     int64   // upper bound on number of model iterations
+	Tolerance float64 // tolerance for model training
+}
+
+func NewGLMConfig(fam Family, maxit int64, tol float64) *GLMConfig {
+	return &GLMConfig{
+		F:         fam,
+		MaxIt:     maxit,
+		Tolerance: tol,
 	}
 }
 
-/*
-var canonicalLinks = map[string]linkFunc{
-	//"normal":      Identity,
-	"exponential": Inverse,
-	"gamma":       Inverse,
-	"poisson":     Inverse,
-	"bernoulli":   Logit,
-	"binomial":    Logit,
-}
-*/
+type glm struct{}
 
-var families = map[string]Family{
-	"binomial":         &binomial{},
-	"poisson":          &poisson{},
-	"inverse gaussian": &invNormal{},
-	"inverse normal":   &invNormal{},
-	"gamma":            &gamma{},
-	"bernoulli":        &binomial{},
+func NewGLM() *glm { return new(glm) }
+
+func print(name string, x interface{}) {
+	fmt.Printf("%s: %v\n", name, x)
 }
 
-/*
-type GLM struct {
-	Family string `json:"family"`
-	Link   linkFunc
-}
-
-func NewGLM(y []float64, x *mat64.Dense, family, link string) *GLM {
-	return &GLM{}
-}
-
-var DefaultTolerance = .000001
-
-func Train(A *mat64.Dense, b []float64, family string, maxIt int) error {
+// Iterative Re-weighting Least Squares Estimation for Generalized Linear Models
+func (g *glm) Train(A *mat64.Dense, b []float64, config *GLMConfig) ([]float64, error) {
 	nrow, ncol := A.Dims()
+	x := mat64.NewDense(ncol, 1, rep(0.0, ncol))
 
-	fam, ok := families[family]
-	if !ok {
-		errors.New("wtf?")
-	}
-
-	link := fam.Link()
-	mu_eta := fam.Derivative()
-	variance := fam.Variance()
-
-	empty := rep(0.0, ncol)
-	x := mat64.NewDense(ncol, 1, empty)
-
-	for i := 0; i < maxIt; i++ {
+	var i int64
+	var err error
+	for ; i < config.MaxIt; i++ {
 		eta := &mat64.Dense{}
 		eta.Mul(A, x)
 
-		g := make([]float64, 0, nrow)
-		gprime := make([]float64, 0, nrow)
-		w := make([]float64, 0, nrow)
+		//print("eta", eta)
 
-		for i, val := range eta.Col(nil, 0) {
-			g[i] = link(val)
+		g := make([]float64, nrow)
+		gprime := make([]float64, nrow)
+		w := make([]float64, nrow)
+
+		etaCol := eta.Col(nil, 0)
+		for i := 0; i < len(etaCol); i++ {
+			val := etaCol[i]
+
+			g[i] = config.F.LinkFn(val)
 			// gprime[i] = mu_eta(val)
-			gprime[i] = mu_eta(val)
 
-			w[i] = math.Pow(gprime[i], 2.0) / variance(g[i])
+			gprime[i] = config.F.DerivativeFn(val)
+
+			w[i] = math.Pow(gprime[i], 2.0) / config.F.VarianceFn(g[i])
 		}
+
+		print("x: %v\n", x)
+		print("g: %v\n", g)
+		print("gprime: %v\n", gprime)
+		print("w: %v\n", w)
 
 		// z = eta + (b - g) / gprime
-		z := make([]float64, nrow)
-		for i, et := range eta.Col(nil, 0) {
-			z[i] = et + (b[i]-g[i])/gprime[i]
+		// z := make([]float64, nrow)
+		z := mat64.NewDense(nrow, 1, nil)
+		eta.Clone(z)
+		z.Apply(func(i, j int, eta float64) float64 {
+			return eta + (b[i]-g[i])/gprime[i]
+		}, z)
+
+		wMat := mat64.NewDense(nrow, nrow, rep(0.0, nrow*nrow))
+		for i := 0; i < nrow; i++ {
+			wMat.Set(i, i, w[i])
 		}
 
-		AWA := _
+		wa := &mat64.Dense{}
+		wa.Mul(wMat, A)
 
-		AWZ := _
+		cprod1 := &mat64.Dense{}
+		cprod1.Mul(wa.T(), A)
 
-		x, err := mat64.Solve(AWA, AWZ)
+		// here
+		wz := &mat64.Dense{}
+		wz.Mul(wMat, z)
+
+		cprod2 := &mat64.Dense{}
+		cprod2.Mul(wz.T(), A)
+
+		xold := mat64.NewDense(ncol, 1, nil)
+		x.Clone(xold)
+
+		x, err = mat64.Solve(cprod1, cprod2.T())
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		C := mat64.Sol
+		// check if we converged
+		diff := &mat64.Dense{}
+		diff.Sub(x, xold)
+
+		conv := &mat64.Dense{}
+		conv.Mul(diff.T(), diff)
+
+		//print("conf: %v\n", conv)
+		//print("conf: %v\n", conv.At(0, 0))
+
+		if conv.At(0, 0) <= config.Tolerance {
+			break
+		}
 	}
-	return nil
+
+	fmt.Printf("coef: %v\n", x)
+	coef := x.Col(nil, 0)
+	return coef, nil
 }
-*/
