@@ -2,8 +2,9 @@ package glasso
 
 import (
 	"fmt"
-	"github.com/gonum/matrix/mat64"
 	"math"
+
+	"github.com/gonum/matrix/mat64"
 )
 
 type fnType uint8
@@ -130,98 +131,83 @@ func NewGLMConfig(fam Family, maxit int64, tol float64) *GLMConfig {
 	}
 }
 
-type glm struct{}
-
-func NewGLM() *glm { return new(glm) }
-
-func print(name string, x interface{}) {
-	fmt.Printf("%s: %v\n", name, x)
+type glm struct {
+	config *GLMConfig
 }
 
+func NewGLM(config *GLMConfig) *glm { return &glm{config} }
+
 // Iterative Re-weighting Least Squares Estimation for Generalized Linear Models
-func (g *glm) Train(A *mat64.Dense, b []float64, config *GLMConfig) ([]float64, error) {
+func (l *glm) Train(A *mat64.Dense, b []float64) ([]float64, error) {
+	if l.config == nil {
+		return nil, fmt.Errorf("config not set")
+	}
+
 	nrow, ncol := A.Dims()
 	x := mat64.NewDense(ncol, 1, rep(0.0, ncol))
 
 	var i int64
 	var err error
-	for ; i < config.MaxIt; i++ {
-		eta := &mat64.Dense{}
-		eta.Mul(A, x)
-
-		//print("eta", eta)
-
-		g := make([]float64, nrow)
-		gprime := make([]float64, nrow)
-		w := make([]float64, nrow)
-
+	for ; i < l.config.MaxIt; i++ {
+		eta := matrixMult(A, x)
 		etaCol := eta.Col(nil, 0)
-		for i := 0; i < len(etaCol); i++ {
-			val := etaCol[i]
 
-			g[i] = config.F.LinkFn(val)
-			// gprime[i] = mu_eta(val)
+		var (
+			g      = make([]float64, nrow) // g = invLink(eta)
+			gprime = make([]float64, nrow) // g = derivativeFn(eta)
+			w      = make([]float64, nrow) // w = gprime^2 / variance(g)
+		)
 
-			gprime[i] = config.F.DerivativeFn(val)
-
-			w[i] = math.Pow(gprime[i], 2.0) / config.F.VarianceFn(g[i])
+		for i, val := range etaCol {
+			g[i] = l.config.F.LinkFn(val)
+			gprime[i] = l.config.F.DerivativeFn(val)
+			w[i] = math.Pow(gprime[i], 2.0) / l.config.F.VarianceFn(g[i])
 		}
 
-		print("x: %v\n", x)
-		print("g: %v\n", g)
-		print("gprime: %v\n", gprime)
-		print("w: %v\n", w)
-
 		// z = eta + (b - g) / gprime
-		// z := make([]float64, nrow)
 		z := mat64.NewDense(nrow, 1, nil)
 		eta.Clone(z)
 		z.Apply(func(i, j int, eta float64) float64 {
 			return eta + (b[i]-g[i])/gprime[i]
 		}, z)
 
+		// convert w = w * I
 		wMat := mat64.NewDense(nrow, nrow, rep(0.0, nrow*nrow))
 		for i := 0; i < nrow; i++ {
 			wMat.Set(i, i, w[i])
 		}
 
-		wa := &mat64.Dense{}
-		wa.Mul(wMat, A)
+		var (
+			wa     = matrixMult(wMat, A)
+			cprod1 = matrixMult(wa.T(), A)
+			wz     = matrixMult(wMat, z)
+			cprod2 = matrixMult(wz.T(), A)
+		)
 
-		cprod1 := &mat64.Dense{}
-		cprod1.Mul(wa.T(), A)
-
-		// here
-		wz := &mat64.Dense{}
-		wz.Mul(wMat, z)
-
-		cprod2 := &mat64.Dense{}
-		cprod2.Mul(wz.T(), A)
-
+		// save xold for evaluating convergence
 		xold := mat64.NewDense(ncol, 1, nil)
 		x.Clone(xold)
 
+		// xnew = solve(crossprod(A,W*A), crossprod(A,W*z))
 		x, err = mat64.Solve(cprod1, cprod2.T())
 		if err != nil {
 			return nil, err
 		}
 
-		// check if we converged
+		// convergence = sqrt(crossprod(x - xold)) <= tolerance
 		diff := &mat64.Dense{}
 		diff.Sub(x, xold)
-
-		conv := &mat64.Dense{}
-		conv.Mul(diff.T(), diff)
-
-		//print("conf: %v\n", conv)
-		//print("conf: %v\n", conv.At(0, 0))
-
-		if conv.At(0, 0) <= config.Tolerance {
+		conv := matrixMult(diff.T(), diff)
+		if math.Sqrt(conv.At(0, 0)) <= l.config.Tolerance {
 			break
 		}
 	}
 
-	fmt.Printf("coef: %v\n", x)
 	coef := x.Col(nil, 0)
 	return coef, nil
+}
+func matrixMult(a, b mat64.Matrix) *mat64.Dense {
+	out := &mat64.Dense{}
+	out.Mul(a, b)
+	return out
 }

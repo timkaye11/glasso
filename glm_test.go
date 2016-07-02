@@ -3,13 +3,13 @@ package glasso
 import "testing"
 
 func TestGLM(t *testing.T) {
-	df := NewDF(data)
+	var (
+		df     = NewDF(data)                      // data frame
+		config = NewGLMConfig(Binomial, 2, 0.005) // model config
+		glm    = NewGLM(config)                   // model builder
+	)
 
-	config := NewGLMConfig(Binomial, 2, 0.005)
-
-	glm := NewGLM()
-	coefficients, err := glm.Train(df.data, y, config)
-
+	coefficients, err := glm.Train(df.data, y)
 	if err != nil {
 		t.Fatalf("could not train GLM: %v", err)
 	}

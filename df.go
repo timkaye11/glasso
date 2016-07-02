@@ -2,7 +2,8 @@ package glasso
 
 import (
 	"errors"
-	u "github.com/araddon/gou"
+	"log"
+
 	"github.com/gonum/matrix/mat64"
 )
 
@@ -31,7 +32,7 @@ func DF(data []float64, labels []string) (*DataFrame, error) {
 	ents := len(data)
 	// dimensions gotta be right
 	if ents%cols != 0 {
-		u.Warnf("Dimension Error. #Cols: %v, Len: %v", cols, len(data))
+		log.Printf("Dimension Error. #Cols: %v, Len: %v", cols, len(data))
 		return nil, DimensionError
 	}
 

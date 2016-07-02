@@ -2,12 +2,12 @@ package glasso
 
 import (
 	"fmt"
+	"log"
 	"math"
 
-	u "github.com/araddon/gou"
 	"github.com/drewlanenga/govector"
+	"github.com/ematvey/gostat"
 	"github.com/gonum/matrix/mat64"
-	"github.com/timkaye11/gostat/stat"
 )
 
 // Regression Output
@@ -77,7 +77,7 @@ func (o *OLS) Train(yvector []float64) error {
 	betas := qrFactor.Solve(mat64.DenseCopyOf(y))
 	o.betas = betas.Col(nil, 0)
 	if len(o.betas) != o.p {
-		u.Warnf("Unexpected dimension error. Betas: %v", o.betas)
+		log.Printf("Unexpected dimension error. Betas: %v", o.betas)
 	}
 
 	// calculate residuals and fitted vals

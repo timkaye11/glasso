@@ -1,1 +1,10 @@
+github.com/bmizerany/assert e17e99893cb6509f428e1728281c2ad60a6b31e3
+github.com/drewlanenga/govector 913c7aafcb887b197824f6575d0d9f62bfa63006
+github.com/gonum/blas cdef4fb01f23294ea842d622139f846c7ad87669
+github.com/gonum/internal 4e496e1db44c5a089f08f50a32a1471670a1a63d
+github.com/gonum/lapack e1d97752a975d2790f8ffebd08eafcc838d7d425
 github.com/gonum/matrix 3482f32d8e34247ff0b78f573dc95521e8cfcdac
+github.com/kr/pretty add1dbc86daf0f983cd4a48ceb39deb95c729b67
+github.com/kr/text bb797dc4fb8320488f47bf11de07a733d7233e1f
+github.com/skelterjohn/go.matrix daa59528eefd43623a4c8e36373a86f9eef870a2
+github.com/ematvey/gostat 09c7c9b84f3c15cfd64db7c8137a6a77e2fb2273
