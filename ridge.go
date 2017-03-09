@@ -1,8 +1,7 @@
 package glasso
 
 import (
-	"math"
-
+	"github.com/gonum/matrix"
 	"github.com/gonum/matrix/mat64"
 )
 
@@ -59,13 +58,14 @@ func (r *ridgeTrainer) Train(x *DataFrame, y []float64) (Model, Summary, error) 
 	x.Normalize()
 	y = subtractMean(y)
 	response := y
-	epsilon := math.Pow(2, -52.0)
-	small := math.Pow(2, -966.0)
-	svd := mat64.SVD(mat64.DenseCopyOf(x.Data()), epsilon, small, true, true)
+	svd := &mat64.SVD{}
+	svd.Factorize(mat64.DenseCopyOf(x.Data()), matrix.SVDFull)
 
-	U := svd.U
-	d := svd.Sigma
-	V := svd.V
+	U := (&mat64.Dense{})
+	U.UFromSVD(svd)
+	V := (&mat64.Dense{})
+	V.VFromSVD(svd)
+	d := svd.Values(nil)
 
 	// convert the c x c diagonal matrix D into a mat64.Dense matrix
 	D := mat64.NewDense(c, c, rep(0.0, c*c))
