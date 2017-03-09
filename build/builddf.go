@@ -258,3 +258,23 @@ func (d *DataFrame) ApplyRows(agg Aggregator, rows []int) []float64 {
 
 	return output
 }
+
+func (df *DataFrame) Standardize() {
+	d := df.X
+	n, p := d.Dims()
+	col := make([]float64, n)
+	for i := 0; i < p; i++ {
+		col = df.GetCol(i)
+		d.SetCol(i, standardize(col))
+	}
+}
+
+func (df *DataFrame) Normalize() {
+	d := df.X
+	n, p := d.Dims()
+	col := make([]float64, n)
+	for i := 0; i < p; i++ {
+		col = df.GetCol(i)
+		d.SetCol(i, normalize(col))
+	}
+}

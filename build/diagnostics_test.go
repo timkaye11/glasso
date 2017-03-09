@@ -7,7 +7,10 @@ import (
 	"github.com/gonum/matrix/mat64"
 )
 
-var model Model
+var (
+	model   Model
+	summary Summary
+)
 
 func init() {
 	data := [][]float64{
@@ -41,13 +44,17 @@ func init() {
 	y := []float64{42.0, 37.0, 37.0, 28.0, 18.0, 18.0, 19.0, 20.0, 15.0, 14.0, 14.0, 13.0, 11.0, 12.0, 8.0, 7.0, 8.0, 8.0, 9.0, 15.0, 15.0}
 
 	// instantiate OLS struct
-	model = NewOLS(df)
-	model.Train(y)
+	trainer := NewOlsTrainer()
+	var err error
+	model, summary, err = trainer.Train(df, y)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func TestLeverage(t *testing.T) {
 	// compare leverage values with output from R to make sure it's correct
-	leverage := roundAll(LeveragePoints(model))
+	leverage := roundAll(LeveragePoints(summary))
 	assert.Equal(t, leverage[0], .302)
 	assert.Equal(t, leverage[1], .318)
 	assert.Equal(t, leverage[20], 0.285)
@@ -55,7 +62,7 @@ func TestLeverage(t *testing.T) {
 
 func TestCooksDistance(t *testing.T) {
 	// compare cooks distances with output from R to make sure it's correct
-	cooks := roundAll(CooksDistance(model))
+	cooks := roundAll(CooksDistance(summary))
 	assert.Equal(t, cooks[0], 0.154)
 	assert.Equal(t, cooks[1], 0.06)
 	assert.Equal(t, cooks[20], 0.692)
@@ -63,14 +70,14 @@ func TestCooksDistance(t *testing.T) {
 
 func TestStudentized(t *testing.T) {
 	// compare studentized residuals with output from R
-	students := roundAll(StudentizedResiduals(model))
+	students := roundAll(StudentizedResiduals(summary))
 	assert.Equal(t, len(students), 21)
 	assert.Equal(t, students[0], 1.193)
 	assert.Equal(t, students[1], -0.716)
 }
 
 func TestVarianceCovariance(t *testing.T) {
-	var_cov, err := VarCov(model)
+	var_cov, err := VarCov(summary)
 	assert.Equal(t, nil, err)
 	assert.Equal(t, roundAll(mat64.Col(nil, 0, var_cov.Data())), []float64{141.515, 0.288, -0.652, -1.677})
 	assert.Equal(t, roundAll(mat64.Col(nil, 1, var_cov.Data())), []float64{0.288, 0.018, -0.037, -0.008})

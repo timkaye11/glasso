@@ -1,11 +1,8 @@
 package build
 
 import (
-	"fmt"
 	"math"
 	"sync"
-
-	"code.google.com/p/gostat/stat"
 
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
@@ -14,13 +11,12 @@ import (
 // CooksDistance concurrently calculates the cooks distances for the model
 //
 // D_{i} = \frac{r_{i}^2}{p * MSE} * \frac{h_{ii}}{(1 - h_{ii})^2}
-func CooksDistance(m Model) []float64 {
+func CooksDistance(m Summary) []float64 {
 	h := LeveragePoints(m)
-	mse := MSE(m)
 	residuals := m.Residuals()
 	distances := make([]float64, m.Data().Rows())
 	p := float64(m.Data().Cols())
-
+	mse := MseAdjusted(m)
 	wg := sync.WaitGroup{}
 	mu := sync.Mutex{}
 	cooks := func(i int) {
@@ -44,8 +40,11 @@ func CooksDistance(m Model) []float64 {
 	return distances
 }
 
-// MSE returns the Mean Squared Error for the model.
-func MSE(m Model) float64 {
+func Mse(m Summary) float64 {
+	return m.SumOfSquares() / float64(m.Data().Rows())
+}
+
+func MseAdjusted(m Summary) float64 {
 	return m.SumOfSquares() / float64(m.Data().Rows()-m.Data().Cols())
 }
 
@@ -57,7 +56,7 @@ func MSE(m Model) float64 {
 //	 = QQ' (the first p cols of Q, where X = n x p)
 //
 // Leverage points are considered large if they exceed 2p/ n
-func LeveragePoints(m Model) []float64 {
+func LeveragePoints(m Summary) []float64 {
 	q := &mat64.Dense{}
 	h := &mat64.Dense{}
 	qr := &mat64.QR{}
@@ -87,7 +86,7 @@ func LeveragePoints(m Model) []float64 {
 //
 // t_{i} = \frac{\hat{\epsilon}}{\sigma * \sqrt{1 - h_{ii}}}
 // \hat{\epsilon} =
-func StudentizedResiduals(m Model) []float64 {
+func StudentizedResiduals(m Summary) []float64 {
 	n, c := m.Data().Rows(), m.Data().Cols()
 	sigma := math.Sqrt(m.SumOfSquares() / float64(n-c))
 	h := LeveragePoints(m)
@@ -103,7 +102,7 @@ func StudentizedResiduals(m Model) []float64 {
 // Press returns the Predicted Error Sum of Squares (Press) of the model.
 // This is used as estimate the model's ability to predict new observations
 // R^2_prediction = 1 - (PRESS / TSS)
-func Press(m Model) []float64 {
+func Press(m Summary) []float64 {
 	press := make([]float64, m.Data().Rows())
 	hdiag := LeveragePoints(m)
 	residuals := m.Residuals()
@@ -117,7 +116,7 @@ func Press(m Model) []float64 {
 // defined as sigma*(XtX)-1
 // Using QR decomposition: X = QR
 // ((QR)tQR)-1 ---> (RtQtQR)-1 ---> (RtR)-1 ---> R-1Rt-1 --> sigma*R-1Rt-1
-func VarCov(m Model) (*DataFrame, error) {
+func VarCov(m Summary) (*DataFrame, error) {
 	r := &mat64.Dense{}
 	qr := &mat64.QR{}
 	qr.Factorize(m.Data().X)
@@ -142,7 +141,7 @@ func VarCov(m Model) (*DataFrame, error) {
 	cols := m.Data().Cols()
 	varCov := mat64.NewDense(cols, cols, nil)
 	varCov.Mul(&rinv, &rtinv)
-	mse := MSE(m)
+	mse := MseAdjusted(m)
 	varCov.Apply(func(_, _ int, v float64) float64 { return v * mse }, varCov)
 	return Mat64ToDF(varCov), nil
 }
@@ -154,23 +153,23 @@ func VarCov(m Model) (*DataFrame, error) {
 //
 // VIF_{j} = \frac{1}{1 - R_{j}^2}
 //
-func VarianceInflationFactors(m Model) ([]float64, error) {
-	vifs := make([]float64, m.Data().Cols())
-	for i := 0; i < m.Data().Cols(); i++ {
-		data := m.Data().Copy()
-		if err := data.RemoveCol(i); err != nil {
-			return nil, err
-		}
+// func VarianceInflationFactors(m Summary) ([]float64, error) {
+// 	vifs := make([]float64, m.Data().Cols())
+// 	for i := 0; i < m.Data().Cols(); i++ {
+// 		data := m.Data().Copy()
+// 		if err := data.RemoveCol(i); err != nil {
+// 			return nil, err
+// 		}
 
-		gen := m.Generator()
-		mod := gen(data)
-		if err := mod.Train(mod.Response()); err != nil {
-			return nil, err
-		}
-		vifs[i] = 1.0 / (1.0 - mod.SumOfSquares())
-	}
-	return vifs, nil
-}
+// 		gen := m.Generator()
+// 		mod := gen(data)
+// 		if err := mod.Train(mod.Response()); err != nil {
+// 			return nil, err
+// 		}
+// 		vifs[i] = 1.0 / (1.0 - mod.SumOfSquares())
+// 	}
+// 	return vifs, nil
+// }
 
 // VarBeta returns the variance of the coefficients for the model.
 // var(\beta) = \sigma * (Xt X_)-1
@@ -178,7 +177,7 @@ func VarianceInflationFactors(m Model) ([]float64, error) {
 // 			  = \sigma * (RtQt QR) -1
 //			  = \sigma * (Rt R) -1
 //
-func VarBeta(m Model) []float64 {
+func VarBeta(m Summary) []float64 {
 	// use the unbiased estimator for sigma^2
 	sig := m.SumOfSquares() / float64(m.Data().Rows()-m.Data().Cols()-1)
 	vc, err := VarCov(m)
@@ -204,7 +203,7 @@ func VarBeta(m Model) []float64 {
 // the standardized coefficient or Z-score
 // Z_j = \frac{B_j}{\sigma * sqrt{v_{j}}}
 // where v_j is the jth diagonal element from the variance covariance matrix: (XtX)-1
-func ZScores(m Model) []float64 {
+func ZScores(m Summary) []float64 {
 	z := make([]float64, m.Data().Cols())
 	v := make([]float64, m.Data().Cols())
 	sigma := math.Sqrt(m.SumOfSquares() / float64(m.Data().Rows()-m.Data().Cols()-1))
@@ -224,9 +223,10 @@ func ZScores(m Model) []float64 {
 	return z
 }
 
+/*
 // The F statistic measures the change in residual sum-of-squares per
 // additional parameter in the bigger model, and it is normalized by an estimate of sigma2
-func FTest(m Model, toRemove ...int) (fval, pval float64, err error) {
+func FTest(m Summary, toRemove ...int) (fval, pval float64, err error) {
 	tmp := m.Data()
 	n, c := m.Data().Rows(), m.Data().Cols()
 	oldSS := m.SumOfSquares()
@@ -253,35 +253,34 @@ func FTest(m Model, toRemove ...int) (fval, pval float64, err error) {
 	pval = 1 - Fdist(fval)
 	return
 }
+*/
 
 // Durbin Watson Test for Autocorrelatoin of the Residuals
 // d = \sum_i=2 ^ n (e_i  - e_i-1)^2 / \sum_i=1^n e_i^2
 //
 // Does not calculate the p-value
-func DW(m Model) float64 {
+func DW(m Summary) float64 {
 	e, err := govector.AsVector(m.Residuals())
 	if err != nil {
 		return 0.0
 	}
 
 	square := func(x float64) float64 { return math.Pow(x, 2) }
-
 	d := e.Diff().Apply(square).Sum()
 	d /= e.Apply(square).Sum()
-
 	return d
 }
 
 // n log(SSE(M) + 2(p(M)+1)
 // AIC = n log(SSE/n) + 2(p + 1).
-func AIC(m Model) float64 {
+func AIC(m Summary) float64 {
 	n, p := float64(m.Data().Rows()), float64(m.Data().Cols())
 	return n*math.Log(m.SumOfSquares()/n) + (2.0*p + 1)
 }
 
 // n log(SSE(M) + (p(M)+1)log(n)
 // BIC = n log(SSE/n) + log(n)(p + 1).
-func BIC(m Model) float64 {
+func BIC(m Summary) float64 {
 	n, p := float64(m.Data().Rows()), float64(m.Data().Cols())
 	return n*math.Log(m.SumOfSquares()/n) + (math.Log(n)*p + 1)
 }
