@@ -3,8 +3,6 @@ package glasso
 import (
 	"fmt"
 	"math"
-
-	"github.com/gonum/matrix/mat64"
 )
 
 func round(val float64, places int) float64 {
@@ -22,7 +20,7 @@ func round(val float64, places int) float64 {
 
 func roundAll(x []float64) []float64 {
 	f := make([]float64, len(x))
-	for i, val := range f {
+	for i, val := range x {
 		f[i] = round(val, 3)
 	}
 	return f
@@ -95,42 +93,6 @@ func rep(val float64, times int) []float64 {
 		out[i] = val
 	}
 	return out
-}
-
-func removeCol(df *mat64.Dense, col int) (*mat64.Dense, error) {
-	r, c := df.Dims()
-	if col > c || col < 0 {
-		return nil, DimensionError
-	}
-
-	cp := mat64.NewDense(r, c-1, nil)
-	m := 0
-	for i := 0; i < c; i++ {
-		if i != col {
-			cp.SetCol(m, df.Col(nil, i))
-			m++
-		}
-	}
-
-	return cp, nil
-}
-
-func removeRow(df *mat64.Dense, row int) (*mat64.Dense, error) {
-	r, c := df.Dims()
-	if row > r || row < 0 {
-		return nil, DimensionError
-	}
-
-	cp := mat64.NewDense(r-1, c, nil)
-	m := 0
-	for i := 0; i < r; i++ {
-		if i != row {
-			cp.SetRow(m, df.Row(nil, i))
-			m++
-		}
-	}
-
-	return cp, nil
 }
 
 func standardize(x []float64) []float64 {
@@ -220,7 +182,16 @@ func diff(x, y []float64) []float64 {
 	return cp
 }
 
-func contains(x interface{}, values []interface{}) bool {
+func containsString(x string, values []string) bool {
+	for _, v := range values {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
+func containsInt(x int, values []int) bool {
 	for _, v := range values {
 		if v == x {
 			return true

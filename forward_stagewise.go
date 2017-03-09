@@ -6,41 +6,33 @@ import (
 	"github.com/gonum/matrix/mat64"
 )
 
-func (df *DataFrame) Standardize() {
-	d := df.data
+type fsTrainer struct {
+	delta   float64
+	epsilon float64
+}
 
-	n, p := d.Dims()
-
-	col := make([]float64, n)
-	for i := 0; i < p; i++ {
-		d.Col(col, i)
-
-		d.SetCol(i, standardize(col))
+func NewForwardStageWiseTrainer(delta, epsilon float64) Trainer {
+	return &fsTrainer{
+		delta:   delta,
+		epsilon: epsilon,
 	}
 }
 
-func (df *DataFrame) Normalize() {
-	d := df.data
-
-	n, p := d.Dims()
-
-	col := make([]float64, n)
-	for i := 0; i < p; i++ {
-		d.Col(col, i)
-
-		d.SetCol(i, normalize(col))
-	}
+type fsModel struct {
+	betas []float64
 }
 
-// Analogous to least squares boosting (trees = predictors)
-type ForwardStage struct {
-	x        *DataFrame
-	epsilon  float64 // how much to increase each beta by
-	delta    float64 // limit to the max correlation amongst variables
-	y        []float64
-	betas    []float64
-	p        int
-	firstRun bool
+func (r *fsModel) Predict(x []float64) float64 {
+	return r.betas[0] + sum(prod(x, r.betas[1:]))
+}
+
+func calculateCorrelation(x *mat64.Dense, y []float64) []float64 {
+	_, p := x.Dims()
+	cors := make([]float64, 0, p)
+	for i := 0; i < p; i++ {
+		cors[i] = cor(mat64.Col(nil, i, x), y)
+	}
+	return cors
 }
 
 // Start with initial residual r = y, and β1 = β2 = · · · = βp = 0.
@@ -50,64 +42,69 @@ type ForwardStage struct {
 // Repeat
 //
 // Pretty much the same as least squares boosting
-func (f *ForwardStage) Train(y []float64) error {
+func (f *fsTrainer) Train(df *DataFrame, y []float64) (Model, Summary, error) {
 	// first we need to standardize the matrix and scale y
 	// and set up variables
-	f.x.Standardize() // make sure x_j_bar = 0
-	n, p := f.x.rows, f.x.cols
+	df.Standardize() // make sure x_j_bar = 0
+	n, p := df.Rows(), df.Cols()
 
 	// set all betas to 0
-	f.betas = rep(0.0, p)
+	betas := rep(0.0, p)
 
 	// center y
 	r := subtractMean(y) // make sure y_bar = 0
 	x := mat64.NewDense(n, p, rep(0.0, n*p))
-	f.firstRun = true
+	data := df.Data()
+	firstRun := true
 
-	// how do we know when to stop?
-	for f.isCorrelation(r) {
+	// we continue until the residuals are uncorrelated with the predictors up
+	// to a certain delta
+	isCorrelation := func(y []float64) bool {
+		if firstRun {
+			firstRun = false
+			return true
+		}
 
 		// find the most correlated variable
-		cors := make([]float64, 0, f.x.cols)
-		for i := 0; i < f.x.cols; i++ {
-			cors[i] = cor(f.x.data.Col(nil, i), y)
+		cors := calculateCorrelation(data, y)
+		if max(cors) < f.delta {
+			return false
 		}
+		return true
+	}
+
+	// how do we know when to stop?
+	for isCorrelation(r) {
+
+		// find the most correlated variable
+		cors := calculateCorrelation(data, y)
 		maxCor := max(cors)
 		maxIdx := sort.SearchFloat64s(cors, maxCor)
 
 		// update beta_j
 		// beta_j = beta_j + delta_j
 		// where delta_j = epsilon * sign(y, x_j)
-		x.SetCol(maxIdx, f.x.data.Col(nil, maxIdx))
+		x.SetCol(maxIdx, mat64.Col(nil, maxIdx, data))
 		//ols := NewOLS(&DataFrame{x, n, p, nil})
 		//ols.Train(r)
 
 		// update beta
-		delta := f.epsilon * sign(sum(prod(x.Col(nil, maxIdx), r)))
-		f.betas[maxIdx] += delta
+		delta := f.epsilon * sign(sum(prod(mat64.Col(nil, maxIdx, x), r)))
+		betas[maxIdx] += delta
 
 		// set r = r - delta_j * x_j
-		r = diff(r, multSlice(x.Col(nil, maxIdx), delta))
-
-	}
-	return nil
-}
-
-// we continue until the residuals are uncorrelated with the predictors up
-// to a certain delta
-func (f *ForwardStage) isCorrelation(y []float64) bool {
-	if f.firstRun {
-		f.firstRun = false
-		return true
+		r = diff(r, multSlice(mat64.Col(nil, maxIdx, x), delta))
 	}
 
-	// find the most correlated variable
-	cors := make([]float64, 0, f.x.cols)
-	for i := 0; i < f.x.cols; i++ {
-		cors[i] = cor(f.x.data.Col(nil, i), y)
-	}
-	if max(cors) < f.delta {
-		return false
-	}
-	return true
+	return &fsModel{
+			betas: betas,
+		}, OlsSummary{
+			data: df,
+			n:    n,
+			p:    p,
+			// fitted:    fitted,
+			// residuals: residuals,
+			// response:  response,
+			betas: betas,
+		}, nil
 }

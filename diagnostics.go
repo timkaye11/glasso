@@ -1,53 +1,56 @@
 package glasso
 
 import (
-	"log"
 	"math"
-	"runtime"
 	"sync"
+
+	"code.google.com/p/gostat/stat"
 
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
-	"github.com/timkaye11/gostat/stat"
 )
 
-var (
-	NCPU = 5
-)
-
-func init() {
-	runtime.GOMAXPROCS(NCPU)
-}
-
-// Parallel Cooks distance computation
+// CooksDistance concurrently calculates the cooks distances for the model
 //
 // D_{i} = \frac{r_{i}^2}{p * MSE} * \frac{h_{ii}}{(1 - h_{ii})^2}
-func (o *OLS) CooksDistance() []float64 {
-	h := o.LeveragePoints()
-	mse := o.MeanSquaredError()
+func CooksDistance(m Summary) []float64 {
+	h := LeveragePoints(m)
+	residuals := m.Residuals()
+	distances := make([]float64, m.Data().Rows())
+	p := float64(m.Data().Cols())
+	mse := MseAdjusted(m)
+	wg := sync.WaitGroup{}
+	mu := sync.Mutex{}
+	cooks := func(i int) {
+		left := math.Pow(residuals[i], 2.0) / (p * mse)
+		right := h[i] / math.Pow(1-h[i], 2.0)
 
-	dists := make([]float64, o.n)
-	p := float64(o.p + 1)
-	var wg sync.WaitGroup
-
-	// parallelize the cooks distance
-	for j := 0; j < NCPU; j++ {
-		wg.Add(1)
-		go func(i, z int) {
-			defer wg.Done()
-			for ; i < z; i++ {
-				left := math.Pow(o.residuals[i], 2.0) / (p * mse)
-				right := h[i] / math.Pow(1-h[i], 2)
-				dists[i] = left * right
-			}
-		}(j*o.n/NCPU, (j+1)*o.n/NCPU)
+		mu.Lock()
+		distances[i] = left * right
+		mu.Unlock()
 	}
-	wg.Done()
 
-	return dists
+	for i := 0; i < m.Data().Rows(); i++ {
+		wg.Add(1)
+		go func(j int) {
+			cooks(j)
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
+
+	return distances
 }
 
-// Leverage Points, the diagonal of the hat matrix
+func Mse(m Summary) float64 {
+	return m.SumOfSquares() / float64(m.Data().Rows())
+}
+
+func MseAdjusted(m Summary) float64 {
+	return m.SumOfSquares() / float64(m.Data().Rows()-m.Data().Cols())
+}
+
+// LeveragePoints returns the diagonal of the hat matrix
 // H = X(X'X)^-1X'  , X = QR,  X' = R'Q'
 //   = QR(R'Q'QR)-1 R'Q'
 //	 = QR(R'R)-1 R'Q'
@@ -55,226 +58,167 @@ func (o *OLS) CooksDistance() []float64 {
 //	 = QQ' (the first p cols of Q, where X = n x p)
 //
 // Leverage points are considered large if they exceed 2p/ n
-func (o *OLS) LeveragePoints() []float64 {
-	x := mat64.DenseCopyOf(o.x.data)
-	qrf := mat64.QR(x)
-	q := qrf.Q()
+func LeveragePoints(m Summary) []float64 {
+	q := &mat64.Dense{}
+	h := &mat64.Dense{}
+	qr := &mat64.QR{}
+	qr.Factorize(m.Data().X)
+	q.QFromQR(qr)
 
-	H := &mat64.Dense{}
-	H.MulTrans(q, false, q, true)
-	o.hat = H
+	// get the first p columns of Q
+	n, p := m.Data().X.Dims()
+	q = q.View(0, 0, n, p).(*mat64.Dense)
+	h.Mul(q, q.T())
 
-	// get diagonal elements
-	n, _ := q.Dims()
-	diag := make([]float64, n)
+	n = m.Data().Rows()
+	diagonals := make([]float64, n)
 	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			if j == i {
-				diag[i] = H.At(i, j)
+		for j := -0; j < n; j++ {
+			if i == j {
+				diagonals[i] = h.At(i, j)
 			}
 		}
 	}
-	return diag
+
+	return diagonals
 }
 
-// Gosset (student)  - studentized resids
+// StudentizedResiduals returns the studentized residuals,
 // found by dividing residual by estimate of std deviation
 //
 // t_{i} = \frac{\hat{\epsilon}}{\sigma * \sqrt{1 - h_{ii}}}
 // \hat{\epsilon} =
-func (o *OLS) StudentizedResiduals() []float64 {
-	t := make([]float64, o.n)
-	var wg sync.WaitGroup
-
-	sigma := math.Sqrt(o.ResidualSumofSquares() / float64(o.n-o.p-1))
-	h := o.LeveragePoints()
-
-	// parallelize calculation of studentized residuals
-	for j := 0; j < NCPU; j++ {
-		wg.Add(1)
-		go func(i, z int) {
-			defer wg.Done()
-			for ; i < z; i++ {
-				t[i] = o.residuals[i] / (sigma * math.Sqrt(1-h[i]))
-			}
-		}(j*o.n/NCPU, (j+1)*o.n/NCPU)
+func StudentizedResiduals(m Summary) []float64 {
+	n, c := m.Data().Rows(), m.Data().Cols()
+	sigma := math.Sqrt(m.SumOfSquares() / float64(n-c))
+	h := LeveragePoints(m)
+	t := make([]float64, n)
+	residuals := m.Residuals()
+	for i := 0; i < m.Data().Rows(); i++ {
+		t[i] = residuals[i] / (sigma * math.Sqrt(1-h[i]))
 	}
-	wg.Wait()
 
 	return t
 }
 
-// PRESS (Predicted Error Sum of Squares)
+// Press returns the Predicted Error Sum of Squares (Press) of the model.
 // This is used as estimate the model's ability to predict new observations
 // R^2_prediction = 1 - (PRESS / TSS)
-func (o *OLS) PRESS() []float64 {
-	press := make([]float64, o.n)
-	h_diag := o.LeveragePoints()
-
-	for i := 0; i < o.n; i++ {
-		press[i] = o.residuals[i] / (1.0 - h_diag[i])
+func Press(m Summary) []float64 {
+	press := make([]float64, m.Data().Rows())
+	hdiag := LeveragePoints(m)
+	residuals := m.Residuals()
+	for i := 0; i < m.Data().Rows(); i++ {
+		press[i] = residuals[i] / (1.0 - hdiag[i])
 	}
-
 	return press
 }
 
-// Calculates the variance-covariance matrix of the regression coefficients
+// VarCov calculates the variance-covariance matrix of the regression coefficients
 // defined as sigma*(XtX)-1
 // Using QR decomposition: X = QR
 // ((QR)tQR)-1 ---> (RtQtQR)-1 ---> (RtR)-1 ---> R-1Rt-1 --> sigma*R-1Rt-1
-//
-func (o *OLS) VarianceCovarianceMatrix() *mat64.Dense {
-	x := mat64.DenseCopyOf(o.x.data)
-	_, p := x.Dims()
+func VarCov(m Summary) (*DataFrame, error) {
+	r := &mat64.Dense{}
+	qr := &mat64.QR{}
+	qr.Factorize(m.Data().X)
+	r.RFromQR(qr)
 
-	// it's easier to do things with X = QR
-	qrFactor := mat64.QR(x)
-	R := qrFactor.R()
-	Rt := R.T()
+	var rinv mat64.Dense
+	var rtinv mat64.Dense
+	_, columns := r.Dims()
+	rCopy := mat64.NewDense(columns, columns, nil)
+	rCopy.Copy(r)
 
-	RtInv, err := mat64.Inverse(Rt)
-	if err != nil {
-		log.Println("Rt is not invertible")
-		return nil
+	rt := mat64.NewDense(columns, columns, nil)
+	rt.Copy(rCopy.T())
+	if err := rtinv.Inverse(rt); err != nil {
+		return nil, err
 	}
 
-	Rinverse, err := mat64.Inverse(R)
-	if err != nil {
-		log.Println("R matrix is not invertible")
-		return nil
+	if err := rinv.Inverse(rCopy); err != nil {
+		return nil, err
 	}
 
-	varCov := mat64.NewDense(p, p, nil)
-	varCov.Mul(Rinverse, RtInv)
-
-	// multiple each element by the mse
-	mse := o.MeanSquaredError()
-	mulEach := func(_, _ int, v float64) float64 { return v * mse }
-	varCov.Apply(mulEach, varCov)
-
-	return varCov
+	cols := m.Data().Cols()
+	varCov := mat64.NewDense(cols, cols, nil)
+	varCov.Mul(&rinv, &rtinv)
+	mse := MseAdjusted(m)
+	varCov.Apply(func(_, _ int, v float64) float64 { return v * mse }, varCov)
+	return Mat64ToDF(varCov), nil
 }
 
-// A simple approach to identify collinearity among explanatory variables is the use of variance inflation factors (VIF).
+// VarianceInflationFactors calculates the VIFs for the model.
 // VIF calculations are straightforward and easily comprehensible; the higher the value, the higher the collinearity
 // A VIF for a single explanatory variable is obtained using the r-squared value of the regression of that
 // variable against all other explanatory variables:
 //
 // VIF_{j} = \frac{1}{1 - R_{j}^2}
 //
-func (o *OLS) VarianceInflationFactors() []float64 {
-	// save a copy of the data
-	orig := mat64.DenseCopyOf(o.x.data)
-
-	m := NewOLS(DfFromMat(orig))
-
-	n, p := orig.Dims()
-
-	vifs := make([]float64, p)
-
-	for idx := 0; idx < p; idx++ {
-		x := o.x.data
-
-		col := x.Col(nil, idx)
-
-		x.SetCol(idx, rep(1.0, n))
-
-		err := m.Train(col)
-		if err != nil {
-			panic("Error Occured calculating VIF")
+func VarianceInflationFactors(m Summary, trainer Trainer) ([]float64, error) {
+	vifs := make([]float64, m.Data().Cols())
+	for i := 0; i < m.Data().Cols(); i++ {
+		data := m.Data().Copy()
+		if err := data.RemoveCol(i); err != nil {
+			return nil, err
 		}
 
-		vifs[idx] = 1.0 / (1.0 - m.RSquared())
+		_, summary, err := trainer.Train(data, m.Response())
+		if err != nil {
+			return nil, err
+		}
+		vifs[i] = 1.0 / (1.0 - summary.SumOfSquares())
 	}
-
-	// reset the data
-	o.x.data = orig
-
-	return vifs
+	return vifs, nil
 }
 
-// DFFITS - influence of single fitted value
-// = \hat{Y_{i}} - \hat{Y_{i(i)}} / \sqrt{MSE_{(i)} h_{ii}}
-// influential if larger than 1
-//
-func (o *OLS) DFFITS() []float64 {
-	orig := o.x.data
-	fitted := o.fitted
-	leverage := o.LeveragePoints()
-
-	dffits := make([]float64, o.n)
-	var wg sync.WaitGroup
-
-	o.n--
-
-	for i := 0; i < len(dffits); i++ {
-		wg.Add(1)
-		go func(i int) {
-			o.x.data = removeRow(o.x.data, i)
-
-			err := o.Train(o.residuals)
-			if err != nil {
-				panic(err)
-			}
-
-			loo_fitted := o.fitted
-
-			dffits[i] = fitted[i] - loo_fitted[i]
-			dffits[i] /= math.Sqrt(o.MeanSquaredError() * leverage[i])
-			wg.Done()
-		}(i)
-	}
-	wg.Wait()
-
-	o.x.data = orig
-	o.n++
-
-	return dffits
-}
-
+// VarBeta returns the variance of the coefficients for the model.
 // var(\beta) = \sigma * (Xt X_)-1
 // 			  = \sigma * ((QR)t QR) -1
 // 			  = \sigma * (RtQt QR) -1
 //			  = \sigma * (Rt R) -1
 //
-func (o *OLS) VarBeta() []float64 {
+func VarBeta(m Summary) []float64 {
 	// use the unbiased estimator for sigma^2
-	sig := o.ResidualSumofSquares() / float64(o.n-o.p-1)
-
-	var_cov := o.VarianceCovarianceMatrix()
-
-	var_cov_diag := make([]float64, len(o.betas))
-
-	for i := 0; i < len(o.betas); i++ {
-		var_cov_diag[i] = var_cov.At(i, i)
+	sig := m.SumOfSquares() / float64(m.Data().Rows()-m.Data().Cols()-1)
+	vc, err := VarCov(m)
+	if err != nil {
+		return nil
 	}
 
-	varbetas := make([]float64, len(o.betas))
+	vcdiag := make([]float64, vc.Rows())
+	for i := 0; i < vc.Rows(); i++ {
+		vcdiag[i] = vc.X.At(i, i)
+	}
 
-	for i, diag := range var_cov_diag {
-		varbetas[i] = math.Sqrt(sig * diag)
+	varbetas := make([]float64, len(vcdiag))
+	for i := range vcdiag {
+		varbetas[i] = math.Sqrt(sig * vcdiag[i])
 	}
 
 	return varbetas
 }
 
+// Z Scores returns the Z score for each coefficient in the model.
 // To test a hypothesis that a coefficient B_j = 0, we form
 // the standardized coefficient or Z-score
 // Z_j = \frac{B_j}{\sigma * sqrt{v_{j}}}
 // where v_j is the jth diagonal element from the variance covariance matrix: (XtX)-1
-func (o *OLS) Z_Scores() []float64 {
-	z := make([]float64, len(o.betas))
-	v := make([]float64, len(o.betas))
+func ZScores(m Summary) []float64 {
+	z := make([]float64, m.Data().Cols())
+	v := make([]float64, m.Data().Cols())
+	sigma := math.Sqrt(m.SumOfSquares() / float64(m.Data().Rows()-m.Data().Cols()-1))
 
-	sigma := math.Sqrt(o.ResidualSumofSquares() / float64(o.n-o.p-1))
-
-	var_cov := o.VarianceCovarianceMatrix()
-	for i := 0; i < len(z); i++ {
-		v[i] = var_cov.At(i, i)
+	vc, err := VarCov(m)
+	if err != nil {
+		return nil
+	}
+	for i := 0; i < len(v); i++ {
+		v[i] = vc.X.At(i, i)
 	}
 
-	for i, beta_j := range o.betas {
-		z[i] = beta_j / (sigma * math.Sqrt(v[i]))
+	for i, beta := range m.Coefficients() {
+		z[i] = beta / (sigma * math.Sqrt(v[i]))
 	}
 
 	return z
@@ -282,70 +226,58 @@ func (o *OLS) Z_Scores() []float64 {
 
 // The F statistic measures the change in residual sum-of-squares per
 // additional parameter in the bigger model, and it is normalized by an estimate of sigma2
-//
-//
-func (o *OLS) F_Test(toRemove ...int) (fval, pval float64) {
-	if len(toRemove) > (o.p - 1) {
-		log.Println("Too many columns to remove")
-		return 0.0, 0.0
-	}
+func FTest(m Summary, trainer Trainer, toRemove []int) (fval, pval float64, err error) {
+	tmp := m.Data()
+	n, c := m.Data().Rows(), m.Data().Cols()
+	oldSS := m.SumOfSquares()
 
-	data := mat64.DenseCopyOf(o.x.data)
 	for _, col := range toRemove {
-		data, _ = removeCol(data, col)
+		err = tmp.RemoveCol(col)
+		if err != nil {
+			return
+		}
 	}
-
-	ols := NewOLS(DfFromMat(data))
-
-	err := ols.Train(o.response)
+	_, summary, err := trainer.Train(tmp, m.Response())
 	if err != nil {
-		log.Printf("Error in F-Test: %v", err)
-		return 0.0, 0.0
+		return
 	}
 
-	d1 := float64(o.p - ols.p)
-	d2 := float64(o.n - o.p)
-
-	f := (ols.ResidualSumofSquares() - o.ResidualSumofSquares()) / d1
-	f /= o.ResidualSumofSquares() / d2
-
+	tmpN, tmpC := tmp.Data().Dims()
+	d1 := float64(c - tmpC)
+	d2 := float64(n - tmpN)
+	fval = (summary.SumOfSquares() / oldSS) / d1
+	fval /= oldSS / d2
 	Fdist := stat.F_CDF(d1, d2)
-	p := 1 - Fdist(f)
-
-	return f, p
+	pval = 1 - Fdist(fval)
+	return
 }
 
 // Durbin Watson Test for Autocorrelatoin of the Residuals
 // d = \sum_i=2 ^ n (e_i  - e_i-1)^2 / \sum_i=1^n e_i^2
 //
 // Does not calculate the p-value
-func (o *OLS) DW_Test() float64 {
-	e, err := govector.AsVector(o.residuals)
+func DW(m Summary) float64 {
+	e, err := govector.AsVector(m.Residuals())
 	if err != nil {
-		log.Printf("error in Durbin Watson: %v", err)
 		return 0.0
 	}
 
 	square := func(x float64) float64 { return math.Pow(x, 2) }
-
 	d := e.Diff().Apply(square).Sum()
 	d /= e.Apply(square).Sum()
-
 	return d
 }
 
 // n log(SSE(M) + 2(p(M)+1)
 // AIC = n log(SSE/n) + 2(p + 1).
-func (o *OLS) AIC() float64 {
-	sse := o.ResidualSumofSquares()
-	n, p := o.x.data.Dims()
-	return float64(n)*math.Log(sse/float64(n)) + (2.0 * (float64(p) + 1))
+func AIC(m Summary) float64 {
+	n, p := float64(m.Data().Rows()), float64(m.Data().Cols())
+	return n*math.Log(m.SumOfSquares()/n) + (2.0*p + 1)
 }
 
 // n log(SSE(M) + (p(M)+1)log(n)
 // BIC = n log(SSE/n) + log(n)(p + 1).
-func (o *OLS) BIC() float64 {
-	sse := o.ResidualSumofSquares()
-	n, p := o.x.data.Dims()
-	return float64(n)*math.Log(sse/float64(n)) + (math.Log(float64(n)) * (float64(p) + 1))
+func BIC(m Summary) float64 {
+	n, p := float64(m.Data().Rows()), float64(m.Data().Cols())
+	return n*math.Log(m.SumOfSquares()/n) + (math.Log(n)*p + 1)
 }

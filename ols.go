@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 
-	u "github.com/araddon/gou"
 	"github.com/drewlanenga/govector"
 	"github.com/gonum/matrix/mat64"
 	"github.com/timkaye11/gostat/stat"
@@ -17,93 +16,97 @@ import (
 // XtX = (QR)t(QR) = RtQtQR = RtR
 // Rβ = Qt y
 type OLS struct {
-	hat       *mat64.Dense
-	x         *DataFrame
-	n, p, df  int
-	xbar      float64
-	betas     []float64
-	residuals []float64
-	fitted    []float64
-	response  []float64
+	betas []float64
+	n, p  int
 }
 
-func NewOLS(x *DataFrame) *OLS {
-	rows := x.rows
-	cols := x.cols
-	//	cols := x.cols + 1
+func NewOlsTrainer() Trainer {
+	return &olsTrainer{}
+}
 
+type olsTrainer struct{}
+
+func (o *olsTrainer) Train(x *DataFrame, yvector []float64) (Model, Summary, error) {
+	rows, cols := x.Rows(), x.Cols()
+	//	cols := x.cols + 1
 	//	d := mat64.DenseCopyOf(x.data.Grow(0, 1))
 	//	d.SetCol(0, rep(1.0, rows))
+	dataframe := x
+	betas := make([]float64, cols)
+	residuals := make([]float64, rows)
+	fitted := make([]float64, rows)
+	n := rows
+	p := cols
+	response := make([]float64, rows)
 
-	return &OLS{
-		x:         x,
-		betas:     make([]float64, cols),
-		residuals: make([]float64, rows),
-		fitted:    make([]float64, rows),
-		df:        rows - 1,
-		n:         rows,
-		p:         cols,
-		response:  make([]float64, rows),
-	}
-}
-
-func (o *OLS) Train(yvector []float64) error {
 	// sanity check
-	if len(yvector) != o.n {
-		return DimensionError
+	if len(yvector) != n {
+		return nil, nil, DimensionError
 	}
 
-	copy(o.response, yvector)
+	copy(response, yvector)
 	y := mat64.NewDense(len(yvector), 1, yvector)
 
-	o.x.PushCol(rep(1.0, o.x.rows))
-	x := o.x.data
+	// remove?
+	x.PushCol(rep(1., x.Rows()))
 
 	// it's easier to do things with X = QR
-	qrFactor := mat64.QR(mat64.DenseCopyOf(x))
-	Q := qrFactor.Q()
-
-	betas := qrFactor.Solve(mat64.DenseCopyOf(y))
-	o.betas = betas.Col(nil, 0)
-	if len(o.betas) != o.p {
-		u.Warnf("Unexpected dimension error. Betas: %v", o.betas)
+	betaMat := &mat64.Dense{}
+	qr := &mat64.QR{}
+	data := x.Data()
+	qr.Factorize(data)
+	if err := betaMat.SolveQR(qr, false, y); err != nil {
+		return nil, nil, err
 	}
+	// first one is intercept
+	betas = mat64.Col(nil, 0, betaMat)
+	fittedMat := &mat64.Dense{}
+	fittedMat.Mul(x.Data(), betaMat)
+	fitted = mat64.Col(nil, 0, fittedMat)
 
-	// calculate residuals and fitted vals
-	/*
-		fitted := &mat64.Dense{}
-		fitted.Mul(x, betas)
-		o.fitted = fitted.Col(nil, 0)
-		y.Sub(y, fitted)
-		o.residuals = y.Col(nil, 0)
-	*/
+	residualMat := &mat64.Dense{}
+	residualMat.Sub(y, fittedMat)
+	residuals = mat64.Col(nil, 0, residualMat)
 
-	// y_hat = Q Qt y
-	// e = y - y_hat
-	qqt := &mat64.Dense{}
-	qqt.MulTrans(Q, false, Q, true)
-	yhat := &mat64.Dense{}
-	yhat.Mul(qqt, y)
-	o.fitted = yhat.Col(nil, 0)
-	y.Sub(y, yhat)
-	o.residuals = y.Col(nil, 0)
+	// fmt.Printf("betas=%v\n", o.betas)
+	// Q := &mat64.Dense{}
+	// Q.QFromQR(qr)
+	// fmt.Printf("q=%+v\nn\n\n\n\n", Q)
+	// qqt := &mat64.Dense{}
+	// qqt.Mul(Q, Q.T())
+	// fmt.Printf("qqt=%+v\n", qqt)
+	// yhat := &mat64.Dense{}
+	// yhat.Mul(qqt, y)
+	// o.fitted = mat64.Col(nil, 0, yhat)
+	// fmt.Printf("fitted=%v\n", o.fitted)
+	// y.Sub(y, yhat)
+	// o.residuals = mat64.Col(nil, 0, y)
 
-	return nil
+	return &OLS{
+			betas: betas,
+		},
+		OlsSummary{
+			betas:     betas,
+			residuals: residuals,
+			fitted:    fitted,
+			response:  response,
+			n:         n,
+			p:         p,
+			data:      dataframe,
+		}, nil
 }
 
 //func (o *OLS) prediction
-
 func (o *OLS) Predict(x []float64) float64 {
-	return sum(prod(x, o.betas))
+	return o.betas[0] + sum(prod(x, o.betas[1:]))
 }
 
-func (o *OLS) String() string {
+func (o OlsSummary) String() string {
 	q, _ := govector.AsVector(o.residuals)
 	points := []float64{0.0, 0.25, 0.5, 0.75, 1.0}
 	p, _ := govector.AsVector(points)
 	qnt := q.Quantiles(p)
 	f, fp := o.F_Statistic()
-
 	return fmt.Sprintf(`
 		Residuals: 
 		Min  25  50t 75  Max: 
@@ -127,57 +130,67 @@ func (o *OLS) String() string {
 	)
 }
 
-// interface methods
-func (o *OLS) Data() *DataFrame        { return o.x }
-func (o *OLS) Coefficients() []float64 { return o.betas }
-func (o *OLS) Residuals() []float64    { return o.residuals }
-func (o *OLS) Yhat() []float64         { return o.fitted }
+type OlsSummary struct {
+	betas     []float64
+	residuals []float64
+	fitted    []float64
+	response  []float64
+	n, p      int
+	data      *DataFrame
+}
 
-func (o *OLS) TotalSumofSquares() float64 {
-	// no chance this could error
-	y, _ := govector.AsVector(o.response)
-	ybar := mean(o.response)
+func (o OlsSummary) Data() *DataFrame        { return o.data }
+func (o OlsSummary) Coefficients() []float64 { return o.betas }
+func (o OlsSummary) Residuals() []float64    { return o.residuals }
+func (o OlsSummary) Yhat() []float64         { return o.fitted }
 
+func (o OlsSummary) TotalSumofSquares() float64 {
+	y := govector.Vector(o.response)
+	ybar := y.Mean()
 	squaredDiff := func(x float64) float64 {
 		return math.Pow(x-ybar, 2.0)
 	}
-
 	return y.Apply(squaredDiff).Sum()
 }
 
-func (o *OLS) ResidualSumofSquares() float64 {
+func (o OlsSummary) SumOfSquares() float64 {
+	return o.ResidualSumofSquares()
+}
+
+func (o OlsSummary) ResidualSumofSquares() float64 {
 	return sum(prod(o.residuals, o.residuals))
 }
 
-func (o *OLS) RSquared() float64 {
+func (o OlsSummary) RSquared() float64 {
 	return float64(1 - (o.ResidualSumofSquares() / o.TotalSumofSquares()))
 }
 
-func (o *OLS) MeanSquaredError() float64 {
-	n, p := o.x.data.Dims()
-	return o.ResidualSumofSquares() / (float64(n - p))
+func (o OlsSummary) MeanSquaredError() float64 {
+	return o.ResidualSumofSquares() / float64(o.n) // - o.dataframe.Cols()))
 }
 
 // the adjusted r-squared adjusts the r-squared value to reflect the importance of predictor variables
 // https://en.wikipedia.org/wiki/Coefficient_of_determination#Adjusted_R2
-func (o *OLS) AdjustedRSquared() float64 {
-	dfe := float64(o.x.rows)
-	dft := dfe - float64(o.x.cols)
+func (o OlsSummary) AdjustedRSquared() float64 {
+	dfe := float64(o.n)
+	dft := dfe - float64(o.p)
 	return 1 - (o.ResidualSumofSquares()*(dfe-1.0))/(o.TotalSumofSquares()*dft)
 }
 
-func (o *OLS) sdResiduals() float64 {
+func (o OlsSummary) sdResiduals() float64 {
 	ybar := mean(o.response)
-
 	ss := 0.0
 	for i := 0; i < o.n; i++ {
 		ss += math.Pow(ybar-o.fitted[i], 2.0)
 	}
-
 	return math.Sqrt(ss / float64(o.n-2))
 }
 
-func (o *OLS) F_Statistic() (float64, float64) {
+func (o OlsSummary) Response() []float64 {
+	return o.response
+}
+
+func (o OlsSummary) F_Statistic() (float64, float64) {
 	r1 := o.TotalSumofSquares()
 	r2 := o.ResidualSumofSquares()
 	p1 := float64(1)
@@ -192,15 +205,11 @@ func (o *OLS) F_Statistic() (float64, float64) {
 	return f, 1.0 - Fdist(f)
 }
 
-func (o *OLS) Confidence_interval(alpha float64) [][2]float64 {
-	tdist := stat.StudentsT_PDF(float64(o.df))
-
+func (o OlsSummary) Confidence_interval(alpha float64) [][2]float64 {
+	tdist := stat.StudentsT_PDF(float64(o.n - 1))
 	t := tdist(1 - alpha)
-
-	std_err := o.VarBeta()
-
+	std_err := VarBeta(o)
 	cis := make([][2]float64, len(o.betas))
-
 	for i, b := range o.betas {
 		v := math.Sqrt(std_err[i])
 		cis[i] = [2]float64{b - t*v, b + t*v}

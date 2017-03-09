@@ -1,11 +1,74 @@
 package glasso
 
 import (
-	"errors"
 	"math"
 
 	"github.com/gonum/matrix/mat64"
 )
+
+type GlmTrainer struct {
+	fam   Family
+	maxIt int
+}
+
+func NewGlmTrainer(family string, maxIt int) Trainer {
+	fam := families[family]
+	return &GlmTrainer{
+		fam:   fam,
+		maxIt: maxIt,
+	}
+}
+
+var DefaultTolerance = .000001
+
+func (g *GlmTrainer) Train(df *DataFrame, b []float64) (Model, Summary, error) {
+	var (
+		A          = df.Data()
+		nrow, ncol = A.Dims()
+		link       = g.fam.Link()
+		mu_eta     = g.fam.Derivative()
+		variance   = g.fam.Variance()
+		empty      = rep(0.0, ncol)
+		x          = mat64.NewDense(ncol, 1, empty)
+	)
+
+	for i := 0; i < g.maxIt; i++ {
+		eta := &mat64.Dense{}
+		eta.Mul(A, x)
+
+		g := make([]float64, 0, nrow)
+		gprime := make([]float64, 0, nrow)
+		w := make([]float64, 0, nrow)
+
+		for i, val := range mat64.Col(nil, 0, eta) {
+			g[i] = link(val)
+			// gprime[i] = mu_eta(val)
+			gprime[i] = mu_eta(val)
+
+			w[i] = math.Pow(gprime[i], 2.0) / variance(g[i])
+		}
+
+		// z = eta + (b - g) / gprime
+		z := make([]float64, nrow)
+		for i, et := range mat64.Col(nil, 0, eta) {
+			z[i] = et + (b[i]-g[i])/gprime[i]
+		}
+
+		/*
+			AWA := _
+
+			AWZ := _
+
+			x, err := mat64.Solve(AWA, AWZ)
+			if err != nil {
+				return err
+			}
+
+			C := mat64.Sol
+		*/
+	}
+	return nil, nil, nil
+}
 
 type linkFunc func(float64) float64
 
@@ -120,68 +183,6 @@ var families = map[string]Family{
 	"poisson":          new(poisson),
 	"inverse gaussian": new(invNormal),
 	"inverse normal":   new(invNormal),
-	"gamma":            new(gammma),
+	"gamma":            new(gamma),
 	"bernoulli":        new(binomial),
-}
-
-type GLM struct {
-	Family string
-	Link   Family
-}
-
-func NewGLM(y []float64, x *mat64.Dense, family, link string) *GLM {
-	return &GLM{}
-}
-
-var DefaultTolerance = .000001
-
-func Train(A *mat64.Dense, b []float64, family string, maxIt int) error {
-	nrow, ncol := A.Dims()
-
-	fam, ok := families[family]
-	if !ok {
-		errors.New("wtf?")
-	}
-
-	link := fam.Link()
-	mu_eta := fam.Derivative()
-	variance := fam.Variance()
-
-	empty := rep(0.0, ncol)
-	x := mat64.NewDense(ncol, 1, empty)
-
-	for i := 0; i < maxIt; i++ {
-		eta := &mat64.Dense{}
-		eta.Mul(A, x)
-
-		g := make([]float64, 0, nrow)
-		gprime := make([]float64, 0, nrow)
-		w := make([]float64, 0, nrow)
-
-		for i, val := range eta.Col(nil, 0) {
-			g[i] = link(val)
-			// gprime[i] = mu_eta(val)
-			gprime[i] = mu_eta(val)
-
-			w[i] = math.Pow(gprime[i], 2.0) / variance(g[i])
-		}
-
-		// z = eta + (b - g) / gprime
-		z := make([]float64, nrow)
-		for i, et := range eta.Col(nil, 0) {
-			z[i] = et + (b[i]-g[i])/gprime[i]
-		}
-
-		AWA := _
-
-		AWZ := _
-
-		x, err := mat64.Solve(AWA, AWZ)
-		if err != nil {
-			return err
-		}
-
-		C := mat64.Sol
-	}
-	return nil
 }

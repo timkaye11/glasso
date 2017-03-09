@@ -16,16 +16,30 @@ import (
 //
 // We can solve for Beta_ridge using:
 // X Beta_ridge = U D(D2 + \lambda I)−1D UT y
-// 				= UUT y
-
+//
+// type ridgeSummary struct {
+// 	x          *DataFrame
+// 	lambda     float64
+// 	n, c       int
+// 	fitted     []float64
+// 	residuals  []float64
+// 	response   []float64
+// 	beta_ridge []float64
+// }
 type Ridge struct {
-	x          *DataFrame
-	lambda     float64
-	n, c       int
-	fitted     []float64
-	residuals  []float64
-	response   []float64
-	beta_ridge []float64
+	betas []float64
+}
+
+func (r *Ridge) Predict(x []float64) float64 {
+	return r.betas[0] + sum(prod(x, r.betas[1:]))
+}
+
+// x = n x c
+// U = n x c
+// D = c x c
+// V = c x c
+type ridgeTrainer struct {
+	lambda float64
 }
 
 // Ridge regression for model shrinkage
@@ -33,70 +47,62 @@ type Ridge struct {
 // Larger lambda equals more shrinkage of the variables.
 // lambda -> 0 equals the least squares solution
 // lambda -> oo means all coeffients equal 0
-func NewRidge(x *DataFrame, lambda float64) *Ridge {
-	n, c := x.data.Dims()
-	return &Ridge{
-		x:          x,
-		n:          n,
-		c:          c,
-		fitted:     make([]float64, n),
-		residuals:  make([]float64, n),
-		beta_ridge: make([]float64, c),
-	}
-}
+func (r *ridgeTrainer) Train(x *DataFrame, y []float64) (Model, Summary, error) {
+	n, c := x.Data().Dims()
+	var (
+		fitted     = make([]float64, n)
+		residuals  = make([]float64, n)
+		beta_ridge = make([]float64, c)
+	)
 
-// interface methods
-func (r *Ridge) Data() *DataFrame        { return r.x }
-func (r *Ridge) Coefficients() []float64 { return r.beta_ridge }
-func (r *Ridge) Residuals() []float64    { return r.residuals }
-func (r *Ridge) Yhat() []float64         { return r.fitted }
-
-// x = n x c
-// U = n x c
-// D = c x c
-// V = c x c
-func (r *Ridge) Train(y []float64) error {
 	// standarize matrix and have y_bar = 0
-	r.x.Normalize()
+	x.Normalize()
 	y = subtractMean(y)
-
-	r.response = y
-
+	response := y
 	epsilon := math.Pow(2, -52.0)
 	small := math.Pow(2, -966.0)
-
-	svd := mat64.SVD(mat64.DenseCopyOf(r.x.data), epsilon, small, true, true)
+	svd := mat64.SVD(mat64.DenseCopyOf(x.Data()), epsilon, small, true, true)
 
 	U := svd.U
-	// D[0] >= D[1] >= ... >= D[n-1]
 	d := svd.Sigma
 	V := svd.V
 
 	// convert the c x c diagonal matrix D into a mat64.Dense matrix
-	D := mat64.NewDense(r.c, r.c, rep(0.0, r.c*r.c))
-	for i := 0; i < r.c; i++ {
+	D := mat64.NewDense(c, c, rep(0.0, c*c))
+	for i := 0; i < c; i++ {
 		val := d[i] / (d[i] + r.lambda)
 		D.Set(i, i, val)
 	}
 
 	// solve for beta_ridge
-	beta := &mat64.Dense{}
-	beta.Mul(V, D)
-	beta.MulTrans(beta, false, U, true)
+	betaMat := &mat64.Dense{}
+	betaMat.Mul(V, D)
+	betaMat.Mul(betaMat, U.T())
 	Y := mat64.NewDense(len(y), 1, y)
-	beta.Mul(beta, Y)
+	betaMat.Mul(betaMat, Y)
 
 	// save beta values
-	r.beta_ridge = beta.Col(nil, 0)
+	beta_ridge = mat64.Col(nil, 0, betaMat)
 
 	// find the fitted values : X * \beta_ridge
-	fitted := &mat64.Dense{}
-	fitted.Mul(r.x.data, beta)
-	r.fitted = fitted.Col(nil, 0)
+	fittedMat := &mat64.Dense{}
+	fittedMat.Mul(x.Data(), betaMat)
+	fitted = mat64.Col(nil, 0, fittedMat)
 
 	// get residuals
-	fitted.Sub(fitted, Y)
-	r.residuals = fitted.Col(nil, 0)
+	fittedMat.Sub(fittedMat, Y)
+	residuals = mat64.Col(nil, 0, fittedMat)
 
-	return nil
+	return &Ridge{
+			betas: beta_ridge,
+		}, OlsSummary{
+			data: x,
+			//lambda:     r.lambda,
+			n:         n,
+			p:         c,
+			fitted:    fitted,
+			residuals: residuals,
+			response:  response,
+			betas:     beta_ridge,
+		}, nil
 }

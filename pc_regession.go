@@ -1,11 +1,6 @@
 package glasso
 
-import (
-	"math"
-
-	"github.com/gonum/matrix/mat64"
-)
-
+/*
 type PCR struct {
 	x *DataFrame
 	z *DataFrame
@@ -68,3 +63,5 @@ func (p *PCR) Train(y []float64) error {
 	// ...
 	return nil
 }
+
+*/

@@ -40,7 +40,7 @@ func NewDataFrame(data [][]float64, labels ...[]string) *DataFrame {
 	df := &DataFrame{
 		X: mat64.NewDense(rows, cols, x),
 		c: cols,
-		r: rows,
+		n: rows,
 	}
 
 	if len(labels) > 0 {
@@ -54,25 +54,36 @@ func (d *DataFrame) GetRow(i int) []float64 {
 	if i > d.n {
 		return nil
 	}
-	return d.X.Row(nil, i)
+	return mat64.Row(nil, i, d.X)
 }
 
 func (d *DataFrame) GetCol(j int) []float64 {
 	if j > d.c {
 		return nil
 	}
-	return d.X.Col(nil, j)
+	return mat64.Col(nil, j, d.X)
 }
 
 func (d *DataFrame) Rows() int { return d.n }
 func (d *DataFrame) Cols() int { return d.c }
+func (d *DataFrame) Data() *mat64.Dense {
+	return mat64.DenseCopyOf(d.X)
+}
+
+func (d *DataFrame) Copy() *DataFrame {
+	return &DataFrame{
+		X: d.Data(),
+		n: d.Rows(),
+		c: d.Cols(),
+	}
+}
 
 // Transform applies a function to the columns of the DataFrame.
 // Cols indicates which columns to apply the function for.
 // If nil, every column is evaluated.
 func (d *DataFrame) Transform(f Evaluator, cols ...int) {
 	d.X.Apply(func(_, c int, v float64) float64 {
-		if contains(c, cols) && cols != nil {
+		if containsInt(c, cols) && cols != nil {
 			return f(v)
 		}
 		return v
@@ -116,7 +127,7 @@ func (d *DataFrame) PushCol(col []float64) error {
 	x.SetCol(0, col)
 
 	for c := 1; c < d.c; c++ {
-		x.SetCol(c, d.X.Col(nil, c-1))
+		x.SetCol(c, d.GetCol(c-1))
 	}
 	d.X = x
 
@@ -125,7 +136,7 @@ func (d *DataFrame) PushCol(col []float64) error {
 
 // PushRow appends a row to the front of the DataFrame.
 func (d *DataFrame) PushRow(row []float64) error {
-	if len(col) != d.c {
+	if len(row) != d.c {
 		return DimensionError
 	}
 
@@ -134,12 +145,53 @@ func (d *DataFrame) PushRow(row []float64) error {
 	x.SetRow(0, row)
 
 	for r := 1; r < d.n; r++ {
-		x.SetRow(r, d.X.Row(nil, r-1))
+		x.SetRow(r, d.GetRow(r-1))
 	}
 	d.X = x
 
 	return nil
 }
+
+// RemoveCol removes a specified column from the Dataframe.
+func (d *DataFrame) RemoveCol(col int) error {
+	if col > d.c {
+		return DimensionError
+	}
+
+	tmp := mat64.NewDense(d.n, d.c-1, nil)
+	j := 0
+	for i := 0; i < d.c; i++ {
+		if i != col {
+			tmp.SetCol(j, d.GetCol(i))
+			j++
+		}
+	}
+	d.c--
+	d.X = tmp
+	return nil
+}
+
+// RemoveRow removes a specified row from the Dataframe
+func (d *DataFrame) RemoveRow(row int) error {
+	if row > d.n {
+		return DimensionError
+	}
+
+	tmp := mat64.NewDense(d.n-1, d.c, nil)
+	j := 0
+	for i := 0; i < d.n; i++ {
+		if i != row {
+			tmp.SetRow(j, d.GetRow(i))
+			j++
+		}
+	}
+	d.n--
+	d.X = tmp
+	return nil
+}
+
+type Evaluator func(float64) float64
+type Aggregator func([]float64) float64
 
 // Similar to the R equivalent: apply a function across all rows / columns of a DataFrame.
 // If margin == true, evaluate column wise, else evaluator rowwise.
@@ -148,7 +200,7 @@ func (d *DataFrame) Apply(f Aggregator, margin bool, idxs ...int) []float64 {
 	if margin {
 		return d.ApplyCols(f, idxs)
 	}
-	return d.applyRows(f, idxs)
+	return d.ApplyRows(f, idxs)
 }
 
 // ApplyCols aggregates values over the columns of the Dataframe.
@@ -172,9 +224,9 @@ func (d *DataFrame) ApplyCols(agg Aggregator, cols []int) []float64 {
 
 		wg.Add(1)
 		go func(i, c int) {
-			output[i] = agg(d.X.Col(nil, c))
+			output[i] = agg(d.GetCol(c))
 			wg.Done()
-		}(i, c)
+		}(i, col)
 	}
 	wg.Wait()
 
@@ -201,11 +253,31 @@ func (d *DataFrame) ApplyRows(agg Aggregator, rows []int) []float64 {
 		}
 		wg.Add(1)
 		go func(i, n int) {
-			output[i] = agg(d.X.Row(nil, n))
+			output[i] = agg(d.GetRow(n))
 			wg.Done()
 		}(i, row)
 	}
 	wg.Wait()
 
 	return output
+}
+
+func (df *DataFrame) Standardize() {
+	d := df.X
+	n, p := d.Dims()
+	col := make([]float64, n)
+	for i := 0; i < p; i++ {
+		col = df.GetCol(i)
+		d.SetCol(i, standardize(col))
+	}
+}
+
+func (df *DataFrame) Normalize() {
+	d := df.X
+	n, p := d.Dims()
+	col := make([]float64, n)
+	for i := 0; i < p; i++ {
+		col = df.GetCol(i)
+		d.SetCol(i, normalize(col))
+	}
 }
