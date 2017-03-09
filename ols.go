@@ -5,8 +5,8 @@ import (
 	"math"
 
 	"github.com/drewlanenga/govector"
+	"github.com/ematvey/gostat"
 	"github.com/gonum/matrix/mat64"
-	"github.com/timkaye11/gostat/stat"
 )
 
 // Ordinary Least Squares regression using QR factorization

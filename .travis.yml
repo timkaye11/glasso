@@ -1,4 +1,5 @@
 language: go
-script: go test -race -cpu 1,2,4 -v ./...
 go:
   - tip
+script: 
+  - go test -race -cpu 1,2,4 -v ./...

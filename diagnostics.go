@@ -4,9 +4,8 @@ import (
 	"math"
 	"sync"
 
-	"code.google.com/p/gostat/stat"
-
 	"github.com/drewlanenga/govector"
+	"github.com/ematvey/gostat"
 	"github.com/gonum/matrix/mat64"
 )
 
@@ -58,6 +57,7 @@ func MseAdjusted(m Summary) float64 {
 //	 = QQ' (the first p cols of Q, where X = n x p)
 //
 // Leverage points are considered large if they exceed 2p/ n
+
 func LeveragePoints(m Summary) []float64 {
 	q := &mat64.Dense{}
 	h := &mat64.Dense{}
